@@ -7,12 +7,12 @@ global int init?;
 ;; global int storage::index; ;; if sbt not single
 global int request?;
 
-global cell storage::content;
-
 global slice storage::arbitrator_address;
 
 global slice storage::lessor_address;
 global slice storage::renter_address;
+
+global cell storage::content;
 
 global int storage::cost;
 global int storage::arbitrator_fee_percent;
@@ -101,26 +101,31 @@ global int ended?;
 
     try {
 
-        if(op::send_deposit) {
-            throw_unless(err::wrong_address, equal_slices(sender_address, storage::renter_address));
-            throw_unless(err::wrong_deposit, msg_value == deposit_size + gas::transaction);
-            throw_if(err::already_inited, init?);
-            throw_if(err::finished, ended?);
-            storage::deposit = msg_value - gas::transaction;
-            rent_end_time = now() + storage::rent_time;
-            storage::delay_time = 0; 
-            send_message_with_comment(flags::unbounceable, sender_address, gas::info_value, "Deposit successful", mode::pay_fees_separately);
-            init? = true;
-            request? = false;
-            ended? = false;
-            save_data();
-            return();
-        }
-
-        throw_unless(err::not_inited, init? | ~ ended?);
+        ;; if(op::send_deposit) {
+            
+        ;; }
 
         if(op == op::comment_message) {
             int comment = string_hash(in_msg_body);
+
+            if(comment == "Deposit"H) {
+                throw_unless(err::wrong_address, equal_slices(sender_address, storage::renter_address));
+                throw_unless(err::wrong_deposit, msg_value == deposit_size + gas::transaction);
+                throw_if(err::already_inited, init?);
+                throw_if(err::finished, ended?);
+                storage::deposit = msg_value - gas::transaction;
+                rent_end_time = now() + storage::rent_time;
+                storage::delay_time = 0; 
+                send_message_with_comment(flags::unbounceable, sender_address, gas::info_value, "Deposit successful", mode::pay_fees_separately);
+                init? = true;
+                request? = false;
+                ended? = false;
+                save_data();
+
+                return();
+            }
+
+            throw_unless(err::not_inited, init? | ~ ended?);
 
             if(comment == "Finish"H) {
                 throw_unless(err::wrong_address, equal_slices(sender_address, storage::lessor_address));
@@ -133,6 +138,7 @@ global int ended?;
 
                 request? = true;
                 save_data();
+
                 return();
             }
 
@@ -162,6 +168,7 @@ global int ended?;
 
                 ended? = true;
                 save_data();
+
                 return();
             }
 
@@ -188,14 +195,33 @@ global int ended?;
 
                 ended? = true;
                 save_data();
+
                 return();
+            }
+
+            if(op == op::withdraw_tons) {
+                throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
+                throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+
+                raw_reserve(gas::min_for_storage, 0);
+
+                var msg = begin_cell()
+                            .store_uint(flags::unbounceable, 6)
+                            .store_slice(storage::arbitrator_address)
+                            .store_coins(0)
+                            .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 32)
+                            .store_slice("Tons successfully withdrawed");
+
+                send_raw_message(msg.end_cell(), mode::carry_remaining_balance + mode::ignore_errors);
+
+                return();            
             }
 
             return();
         }
 
-
         throw(op::unknown);
+
     } catch (_, n) {
         send_cell_message(sender_address, 0, begin_cell().store_uint(0, 32).store_slice("Error. Code ").store_number10(n).end_cell(), mode::carry_remaining_gas);
         return();
@@ -244,10 +270,10 @@ global int ended?;
                                 .store_uint(32, 8)
                                 .store_slice(" day(s) ")
                                 .store_number10(rent_time_hours)
-                                .store_slice(" hours")
-                                .store_uint(10, 8);
+                                .store_slice(" hours");
                                 
         builder sbt_description_ref = begin_cell()
+                                .store_uint(10, 8)
                                 .store_slice("Rent end timestamp: ")
                                 .store_number10(rent_end_time)
                                 .store_uint(10, 8)
