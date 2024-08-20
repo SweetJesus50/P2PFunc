@@ -97,7 +97,7 @@ global int ended?;
     load_data();
 
     int op = in_msg_body~load_uint(32);
-    int query_id = in_msg_body~load_uint(64);
+    int query_id = slice_bits(in_msg_body) == 64 ? in_msg_body~load_uint(64) : 0;
 
     try {
 
@@ -144,18 +144,19 @@ global int ended?;
 
                 int now = now();
                 storage::delay_time = rent_end_time + one_hour;
-                int arbitrator_fee = muldiv(storage::deposit, storage::arbitrator_fee_percent, percent_six_precision_divisor);
+                int arbitrator_fee = muldiv(storage::cost, storage::arbitrator_fee_percent, percent_six_precision_divisor);
+                int value_to_send = storage::cost - arbitrator_fee;
 
                 if(now >= storage::delay_time) {
-                    ;; penalty here (maybe take deposit from renter) and send full pay request to renter
+                    ;; w/penalty
                     send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Arbitrator fee", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::lessor_address, storage::cost + storage::deposit, "Deposit as fine", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::lessor_address, value_to_send + storage::deposit, "Deposit as fine", mode::pay_fees_separately);
                     send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Payment was delayed", mode::pay_fees_separately);
                 }
                 else {
-                    ;; no penalty
+                    ;; w/o penalty
                     send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Arbitrator fee", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::lessor_address, storage::cost, "Money for rent", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::lessor_address, value_to_send, "Money for rent", mode::pay_fees_separately);
                     send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit, "Deposit return.", mode::pay_fees_separately);
                 }
 
@@ -169,8 +170,8 @@ global int ended?;
                 throw_if(err::finished, now() >= rent_end_time);
                 throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
 
-                int arbitrator_fee = muldiv(storage::deposit, storage::arbitrator_fee_percent, percent_six_precision_divisor);
-                int value_to_send = storage::deposit - arbitrator_fee;
+                int arbitrator_fee = muldiv(storage::cost, storage::arbitrator_fee_percent, percent_six_precision_divisor);
+                int value_to_send = storage::cost - arbitrator_fee;
 
                 if(equal_slices(sender_address, storage::lessor_address)) {
                     send_message_with_comment(flags::unbounceable, storage::renter_address, storage::cost + storage::deposit, "Lessor canceled rent", mode::pay_fees_separately);
@@ -215,7 +216,7 @@ global int ended?;
         var (_, r) = divmod(storage::rent_time, one_day);
         int rent_time_hours = r / one_hour;
 
-        ;; (slice uri, int success) = loaded_dict.udict_get?(256, "uri"H);
+        ;; (slice uri, int success) = loaded_dict.udict_get?(256, "uri"H); ;; no need now
         ;; if (success) {
         ;;     uri = uri~load_ref().begin_parse();
         ;;     loaded_dict~udict_set(256, "uri"H, begin_cell().store_ref(begin_cell().store_slice(uri).store_number10(storage::index).end_cell()).end_cell().begin_parse());
@@ -244,9 +245,17 @@ global int ended?;
                                 .store_slice(" day(s) ")
                                 .store_number10(rent_time_hours)
                                 .store_slice(" hours")
-                                .store_uint(10, 8)
+                                .store_uint(10, 8);
+                                
+        builder sbt_description_ref = begin_cell()
                                 .store_slice("Rent end timestamp: ")
-                                .store_number10(rent_end_time);
+                                .store_number10(rent_end_time)
+                                .store_uint(10, 8)
+                                .store_slice("Arbitrator percent: ")
+                                .store_number10(storage::arbitrator_fee_percent)
+                                .store_uint(37, 8);
+
+        sbt_description = sbt_description.store_ref(sbt_description_ref.end_cell());
 
         loaded_dict~udict_set(256, "name"H, begin_cell().store_ref(sbt_name.end_cell()).end_cell().begin_parse());
         loaded_dict~udict_set(256, "description"H, begin_cell().store_ref(sbt_description.end_cell()).end_cell().begin_parse());
