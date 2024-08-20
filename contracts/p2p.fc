@@ -1,0 +1,266 @@
+#include "imports/stdlib.fc";
+#include "imports/constants.fc";
+#include "imports/op-codes.fc";
+#include "imports/utils.fc";
+
+global int init?;
+;; global int storage::index; ;; if sbt not single
+global int request?;
+
+global cell storage::content;
+
+global slice storage::arbitrator_address;
+
+global slice storage::lessor_address;
+global slice storage::renter_address;
+
+global int storage::cost;
+global int storage::arbitrator_fee_percent;
+global int storage::deposit;
+
+global int storage::rent_time;
+global int storage::delay_time;
+global int rent_end_time;
+
+global int ended?;
+
+
+() load_data() {
+    slice ds = get_data().begin_parse();
+
+    if(ds.slice_bits()) {
+        init? = false;
+        ended? = false;
+        request? = false;
+        storage::arbitrator_address = ds~load_msg_addr();
+        storage::lessor_address = ds~load_msg_addr();
+        storage::renter_address = ds~load_msg_addr();
+
+        storage::content = ds~load_ref();
+
+        slice ds2 = ds~load_ref().begin_parse();
+        storage::cost = ds2~load_coins();
+        storage::arbitrator_fee_percent = ds2~load_uint(32);
+        storage::rent_time = ds2~load_uint(32);
+        if(ds2.slice_bits()) {
+            init? = true;
+            storage::deposit = ds2~load_coins();
+            storage::delay_time = ds2~load_uint(32);
+            rent_end_time = ds2~load_uint(32);
+            request? = ds2~load_int(1);
+            ended? = ds2~load_int(1);
+        }
+
+        ds2.end_parse();
+    }
+}
+
+() save_data() {
+    set_data(
+        begin_cell()
+            .store_slice(storage::arbitrator_address)
+            .store_slice(storage::lessor_address)
+            .store_slice(storage::renter_address)
+            .store_ref(storage::content)
+            .store_ref(
+                begin_cell()
+                    .store_coins(storage::cost)
+                    .store_uint(storage::arbitrator_fee_percent, 32)
+                    .store_uint(storage::rent_time, 32)
+                    .store_coins(storage::deposit)
+                    .store_uint(storage::delay_time, 32)
+                    .store_uint(rent_end_time, 32)
+                    .store_int(request?, 1)
+                    .store_int(ended?, 1)
+                .end_cell()
+            )
+        .end_cell()
+    );
+}
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+    slice sender_address = cs~load_msg_addr();
+    int fwd_fee_from_in_msg = cs~retrieve_fwd_fee();
+    int fwd_fee = get_original_fwd_fee(WORKCHAIN, fwd_fee_from_in_msg);
+
+    if(flags & 1) {
+        return();
+    }
+
+    load_data();
+
+    if(in_msg_body.slice_empty?()) {
+        return();
+    }
+
+    int op = in_msg_body~load_uint(32);
+    int query_id = in_msg_body~load_uint(64);
+
+    try {
+
+        if(op::deposit) {
+            throw_unless(err::wrong_address, equal_slices(sender_address, storage::renter_address));
+            throw_unless(err::wrong_deposit, msg_value == deposit_size + gas::transaction);
+            storage::deposit = msg_value - gas::transaction;
+            rent_end_time = now() + storage::rent_time; 
+            init? = true;
+            send_message_with_comment(flags::unbounceable, sender_address, gas::info_value, "Deposit successful", mode::pay_fees_separately);
+            save_data();
+            return();
+        }
+
+        throw_unless(err::not_inited, init? | ~ ended?);
+
+        if(op == op::comment_message) {
+            int comment = string_hash(in_msg_body);
+
+            if(comment == "Finish"H) {
+                throw_unless(err::wrong_address, equal_slices(sender_address, storage::lessor_address));
+                throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+                throw_unless(err::not_finished, now() >= rent_end_time);
+                throw_if(err::finished, ended?);
+
+                ;; send payment request
+                send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Waiting for payment...", mode::pay_fees_separately);
+
+                request? = true;
+                save_data();
+                return();
+            }
+
+            if(comment = "Payment"H) {
+                throw_unless(err::not_enough_money, msg_value == storage::cost);
+                throw_unless(err::wrong_address, equal_slices(sender_address, storage::renter_address));
+                throw_unless(err::not_finished, now() >= rent_end_time);
+                throw_unless(err::request_not_sent, request?);
+
+                int now = now();
+                storage::delay_time = rent_end_time + one_hour;
+                int arbitrator_fee = muldiv(storage::deposit, storage::arbitrator_fee_percent, percent_six_precision_divisor);
+
+                if(now >= storage::delay_time) {
+                    ;; penalty here (maybe take deposit from renter) and send full pay request to renter
+                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Arbitrator fee", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::lessor_address, storage::cost + storage::deposit, "Deposit as fine", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Payment was delayed", mode::pay_fees_separately);
+                }
+                else {
+                    ;; no penalty
+                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Arbitrator fee", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::lessor_address, storage::cost, "Money for rent", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit, "Deposit return.", mode::pay_fees_separately);
+                }
+
+                ended? = true;
+                save_data();
+                return();
+            }
+
+            if(comment == "Cancel"H) {
+                throw_unless(err::wrong_address, equal_slices(sender_address, storage::lessor_address) | equal_slices(sender_address, storage::arbitrator_address));
+                throw_if(err::finished, now() >= rent_end_time);
+                throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
+
+                int arbitrator_fee = muldiv(storage::deposit, storage::arbitrator_fee_percent, percent_six_precision_divisor);
+                int value_to_send = storage::deposit - arbitrator_fee;
+
+                if(equal_slices(sender_address, storage::lessor_address)) {
+                    send_message_with_comment(flags::unbounceable, storage::renter_address, storage::cost + storage::deposit, "lessor canceled rent", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "You canceled rent", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Fee from deposit", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Lessor canceled rent", mode::carry_remaining_balance + mode::selfdestruct_on_empty);
+                }
+                else {
+                    send_message_with_comment(flags::unbounceable, storage::renter_address, value_to_send + storage::cost, "Arbitrator canceled rent", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Arbitrator canceled rent", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Fee from deposit", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "You canceled rent", mode::carry_remaining_balance + mode::selfdestruct_on_empty);
+                }
+
+                ended? = true;
+                save_data();
+                return();
+            }
+
+            return();
+        }
+
+
+        throw(op::unknown);
+    } 
+    catch (_, n) {
+        send_cell_message(sender_address, 0, begin_cell().store_uint(0, 32).store_slice("Error. Code ").store_number10(n).end_cell(), mode::carry_remaining_gas);
+        return();
+    }
+
+}
+
+
+{- GET -}
+
+(int, int, slice, slice, cell) get_nft_data() method_id {
+    load_data();
+    ifnot(null?(storage::content)) {
+        slice content_cs = storage::content.begin_parse();
+        cell loaded_dict = content_cs~load_ref();
+
+        int rent_time_days = storage::rent_time / one_day;
+        var (_, r) = divmod(storage::rent_time, one_day);
+        int rent_time_hours = r / one_hour;
+
+        ;; (slice uri, int success) = loaded_dict.udict_get?(256, "uri"H);
+        ;; if (success) {
+        ;;     uri = uri~load_ref().begin_parse();
+        ;;     loaded_dict~udict_set(256, "uri"H, begin_cell().store_ref(begin_cell().store_slice(uri).store_number10(storage::index).end_cell()).end_cell().begin_parse());
+        ;; }
+
+        (slice item_name_slice, int success) = loaded_dict~udict_delete_get?(256, "item_name"H);
+        builder sbt_name = begin_cell();
+        if(success) {
+            sbt_name.store_uint(0,8).store_slice(item_name_slice).store_slice(" rental");
+        }
+        else {
+            sbt_name.store_uint(0,8).store_slice("Rent");
+        }
+
+        if (ended?) {
+            sbt_name.store_slice(" (ended)");
+        }
+
+        builder sbt_descriprion = begin_cell()
+                                .store_uint(0, 8)  ;; snake format prefix
+                                .store_slice("Cost: ")
+                                .store_str_float(storage::cost, nano)
+                                .store_uint(10, 8)
+                                .store_slice("Rent time: ")
+                                .store_number10(rent_time_days)
+                                .store_uint(32, 8)
+                                .store_number10(rent_time_hours)
+                                .store_slice(" hours")
+                                .store_uint(10, 8)
+                                .store_slice("Rent end timestamp: ")
+                                .store_number10(rent_end_time);
+
+        loaded_dict~udict_set(256, "name"H, begin_cell().store_ref(sbt_name.end_cell()).end_cell().begin_parse());
+        loaded_dict~udict_set(256, "description"H, begin_cell().store_ref(sbt_descriprion.end_cell()).end_cell().begin_parse());
+        
+        return (init?, 0, null_addr(), storage::lessor_address, begin_cell().store_uint(0, 8).store_dict(loaded_dict).end_cell());
+    }
+    return (init?, 0, null_addr(), storage::lessor_address, storage::content);
+}
+
+slice get_editor() method_id {
+    load_data();
+    return null_addr();
+}
+
+slice get_authority_address() method_id {
+    load_data();
+    return null_addr();
+}
+
+int get_revoked_time() method_id {
+    return 0;
+}

@@ -1,0 +1,54 @@
+const int percent_six_precision_divisor = 100000000;
+const int send_back_extra_value = 20000000;
+const int penalty_fee = 1000000;
+const int penalty_divisor = 100;
+
+const int deposit_size = 500000000; ;; 0.5 TON for example
+
+const int one_hour = 60 * 60;
+const int one_day = 24 * 60 * 60;
+const int nano = 1000000000;
+
+{- GAS -}
+const int gas::cancellation = 50000000;
+const int gas::info_value = 1000000;
+const int gas::jetton_transfer = 55000000;
+const int gas::provide_wallet_address = 15000000;
+const int gas::transaction = 50000000;
+const int gas::deploy_value = 50000000;
+
+const int WORKCHAIN = 0;
+
+{- MESSAGE MODES -}
+
+const int mode::simple                  = 0;
+const int mode::carry_remaining_gas     = 64;
+const int mode::carry_remaining_balance = 128;
+
+const int mode::pay_fees_separately     = 1;
+const int mode::ignore_errors           = 2;
+const int mode::bounce_on_fail          = 16;
+const int mode::selfdestruct_on_empty   = 32;
+
+const int flags::bounceable             = 0x18;
+const int flags::unbounceable           = 0x10;
+
+{- Error Codes -}
+const int err::unauthorized_access = 401;
+const int err::already_started = 50;
+const int err::already_inited = 51;
+const int err::wrong_address = 52;
+const int err::not_inited = 53;
+const int err::not_finished = 54;
+const int err::finished = 55;
+const int err::not_started = 56;
+const int err::time_out = 57;
+const int err::addr_doesnt_match = 58;
+const int err::moderator_exists = 59;
+const int err::no_moderator_to_remove = 60;
+const int err::wrong_deposit = 61;
+const int err::not_enough_money = 62;
+const int err::request_not_sent = 63;
+const int err::out_of_gas = 13;
+
+const int exc::wrong_chain = 333;

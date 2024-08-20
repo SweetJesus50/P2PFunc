@@ -1,0 +1,498 @@
+#include "imports/stdlib.fc";
+#include "imports/constants.fc";
+#include "imports/op-codes.fc";
+#include "imports/utils.fc";
+
+global int  storage::init?;
+
+global slice storage::foundation_address;
+global slice storage::jetton_master_address;
+global slice storage::arbitrator_address;
+global slice storage::checker_address;
+global slice storage::p2p_jetton_wallet;
+global slice storage::seller_ton_address;
+global slice storage::seller_external_address;
+global slice storage::buyer_ton_address;
+global slice storage::buyer_external_address;
+
+global int storage::coins_internal_ton;
+global int storage::coins_internal_jetton;
+global int storage::coins_external;
+global int storage::min_percent_to_complete;
+global int storage::transcation_max_interval;
+global int storage::jetton_balance;
+global int storage::ton_extra_balance;
+global int storage::service_fee_percent;
+global int storage::transaction_max_time;
+
+global int storage::is_ended?;
+global int storage::is_checker_transaction_received?;
+global int storage::id;
+
+global int storage::ton_buyer;
+global int storage::jetton_buyer; 
+global int storage::ton_seller;
+global int storage::jetton_seller;
+global int storage::jetton_fee;
+
+() load_data() impure inline {
+    slice ds = get_data().begin_parse();                     ;; 267 + 267 + 267 = 801 ; refs = 4
+    storage::foundation_address = ds~load_msg_addr();
+    storage::jetton_master_address = ds~load_msg_addr();
+    storage::arbitrator_address = ds~load_msg_addr();
+
+    slice ds1 = ds~load_ref().begin_parse();                 ;; 267 + 267 + 267 = 801 
+    storage::checker_address = ds1~load_msg_addr();
+    storage::p2p_jetton_wallet = ds1~load_msg_addr();
+    storage::seller_ton_address = ds1~load_msg_addr();
+
+    if(storage::p2p_jetton_wallet.preload_uint(2) == 0 ) {
+        storage::init? = false;
+    }
+ 
+    slice ds2 = ds~load_ref().begin_parse();                 ;; 267 + 267 + 267 = 801
+    storage::seller_external_address = ds2~load_bits(256);
+    storage::buyer_ton_address = ds2~load_msg_addr();
+    storage::buyer_external_address = ds2~load_bits(256);
+
+    slice ds3 = ds~load_ref().begin_parse();                 ;; 124 + 124 + 256 + 32 + 32 + 124 + 124 + 32 + 32 + 1 + 1 + 32 = 914
+    storage::coins_internal_ton = ds3~load_coins();
+    storage::coins_internal_jetton = ds3~load_coins();
+    storage::coins_external = ds3~load_uint(256);
+    storage::min_percent_to_complete = ds3~load_uint(32);
+    storage::transcation_max_interval = ds3~load_uint(32);
+    storage::jetton_balance = ds3~load_coins();
+    storage::ton_extra_balance = ds3~load_coins();
+    storage::service_fee_percent = ds3~load_uint(32);
+    storage::transaction_max_time = ds3~load_uint(32);
+    storage::is_ended? = ds3~load_int(1) ;
+    storage::is_checker_transaction_received? = ds3~load_int(1);
+    storage::id = ds3~load_uint(32);
+
+    slice ds4 = ds~load_ref().begin_parse();                   ;; 124 + 124 + 124 + 124 = 496
+    storage::ton_buyer = ds4~load_coins();
+    storage::jetton_buyer = ds4~load_coins();
+    storage::ton_seller = ds4~load_coins();
+    storage::jetton_seller = ds4~load_coins();
+    storage::jetton_fee = ds4~load_coins();
+
+    ds.end_parse();
+    
+}
+
+() save_data() impure inline {
+    set_data(
+        begin_cell()
+            .store_slice(storage::foundation_address)
+            .store_slice(storage::jetton_master_address)
+            .store_slice(storage::arbitrator_address)
+            .store_ref( ;; ref 1
+                begin_cell()
+                    .store_slice(storage::checker_address)
+                    .store_slice(storage::p2p_jetton_wallet)
+                    .store_slice(storage::seller_ton_address)  
+                .end_cell()
+            )
+            .store_ref( ;; ref 2
+                begin_cell()
+                    .store_slice(storage::seller_external_address)
+                    .store_slice(storage::buyer_ton_address)
+                    .store_slice(storage::buyer_external_address)  
+                .end_cell()
+            )
+            .store_ref( ;; ref 3
+                begin_cell()
+                    .store_coins(storage::coins_internal_ton)
+                    .store_coins(storage::coins_internal_jetton)
+                    .store_uint(storage::coins_external, 256)
+                    .store_uint(storage::min_percent_to_complete, 32)
+                    .store_uint(storage::transcation_max_interval, 32)
+                    .store_coins(storage::jetton_balance)
+                    .store_coins(storage::ton_extra_balance)
+                    .store_uint(storage::service_fee_percent, 32)
+                    .store_uint(storage::transaction_max_time, 32)
+                    .store_int(storage::is_ended?, 1)
+                    .store_int(storage::is_checker_transaction_received?, 1)
+                    .store_int(storage::id, 32)
+                .end_cell()
+            )
+            .store_ref( ;; ref 4
+                begin_cell()
+                    .store_coins(storage::ton_buyer)
+                    .store_coins(storage::jetton_buyer)
+                    .store_coins(storage::ton_seller)
+                    .store_coins(storage::jetton_seller)
+                    .store_coins(storage::jetton_fee)
+                .end_cell()
+            )
+        .end_cell()
+    );
+}
+
+() confirm() impure inline {
+    if ((storage::ton_extra_balance >= storage::coins_internal_ton) & (storage::jetton_balance >= storage::coins_internal_jetton) & (storage::transaction_max_time == 0)) {
+        storage::transaction_max_time = now() + storage::transcation_max_interval;
+        send_message_with_comment(flags::unbounceable, storage::buyer_ton_address, gas::info_value, "Tonb seller initiated an offer. Now you may send your tokens", mode::pay_fees_separately);
+    }
+}
+
+() send_tonb(slice to_address, int tonb_amount) impure inline {
+    if(tonb_amount > 0) {
+        send_jettons(123, tonb_amount, to_address, storage::seller_ton_address, storage::p2p_jetton_wallet, gas::jetton_transfer, mode::pay_fees_separately, 0, null());
+    }
+}
+
+() full_fill() impure inline {
+    int coins_fee = muldiv(storage::coins_internal_ton + storage::coins_internal_jetton, storage::service_fee_percent, percent_six_precision_divisor);
+    int coins_buyer = storage::coins_internal_jetton - coins_fee;
+
+    storage::jetton_fee = coins_fee;
+    send_tonb(storage::foundation_address, coins_fee);
+
+    storage::jetton_buyer = coins_buyer;
+    send_tonb(storage::buyer_ton_address, coins_buyer);
+
+    storage::jetton_seller = storage::jetton_balance;
+    send_tonb(storage::seller_ton_address, storage::jetton_balance);
+
+    storage::ton_buyer = storage::coins_internal_ton;
+
+    send_message_with_comment(flags::unbounceable, storage::buyer_ton_address, gas::info_value + storage::coins_internal_ton, "Full filled", mode::pay_fees_separately);
+
+    send_message_with_comment(flags::unbounceable, storage::seller_ton_address, 0, "Full filled", mode::carry_remaining_balance + mode::ignore_errors);
+
+    storage::is_ended? = true;
+}
+
+
+() partly_fill(int percent) impure inline {
+    int ton_percent = muldiv(storage::coins_internal_ton, percent_six_precision_divisor, storage::coins_internal_ton + storage::coins_internal_jetton);
+    int offer_sum = storage::coins_internal_jetton + storage::coins_internal_ton;
+    int fee_jetton = muldiv(offer_sum, muldiv(percent, storage::service_fee_percent, percent_six_precision_divisor), percent_six_precision_divisor);
+
+    int buyer_jetton = 0;
+    int buyer_ton = muldiv(offer_sum, percent, percent_six_precision_divisor) - fee_jetton;
+
+    if(ton_percent < percent) {
+        buyer_jetton = muldiv(offer_sum, (percent - ton_percent), percent_six_precision_divisor) - fee_jetton;
+        buyer_ton = storage::coins_internal_ton;
+        if (buyer_jetton < 0) {
+            buyer_ton = buyer_ton + buyer_jetton;
+            buyer_jetton = 0;
+        }
+    }
+    
+    storage::jetton_fee = fee_jetton;
+    send_tonb(storage::foundation_address, fee_jetton);
+
+    storage::jetton_buyer = buyer_jetton;
+    send_tonb(storage::buyer_ton_address, buyer_jetton);
+
+    storage::jetton_seller = storage::jetton_balance;
+    send_tonb(storage::seller_ton_address, storage::jetton_balance);
+    
+    storage::ton_buyer = buyer_ton;
+
+    send_message_with_comment(flags::unbounceable, storage::buyer_ton_address, gas::info_value + buyer_ton, "Partly filled", mode::pay_fees_separately);
+
+    storage::ton_seller = storage::coins_internal_ton - buyer_ton;
+    if (storage::ton_seller < 0) {
+        storage::ton_seller = 0;
+    }
+
+    send_message_with_comment(flags::unbounceable, storage::seller_ton_address, 0, "Partly filled", mode::carry_remaining_balance);  
+
+    storage::is_ended? = true;
+} 
+
+() abort() impure inline {
+    storage::jetton_seller = storage::jetton_balance;
+    send_tonb(storage::seller_ton_address, storage::jetton_balance);
+
+    send_message_with_comment(flags::unbounceable, storage::buyer_ton_address, gas::info_value, "Aborted", mode::pay_fees_separately);
+
+    send_message_with_comment(flags::unbounceable, storage::seller_ton_address, gas::info_value, "Aborted", mode::carry_remaining_balance + mode::ignore_errors);
+
+    storage::is_ended? = true;
+    storage::ton_seller = storage::coins_internal_ton;
+}
+
+() info_problem() impure inline {
+    slice problem_comment = "A problem occurred. Please, wait for the arbitrator's decision";
+    send_message_with_comment(flags::unbounceable, storage::buyer_ton_address, gas::info_value, problem_comment, mode::pay_fees_separately);
+    send_message_with_comment(flags::unbounceable, storage::seller_ton_address, gas::info_value, problem_comment, mode::pay_fees_separately);
+    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, gas::info_value, "A problem occured", mode::pay_fees_separately);
+}
+
+() accept_arbitrator_message(int amount) impure inline {
+    if (amount >= storage::coins_external) {
+        full_fill();
+    }
+    else { ;; received only a part, but it's bigger than the minimum value, or equals to it.
+        int percent = muldiv(amount, percent_six_precision_divisor, storage::coins_external);
+        partly_fill(percent);
+    }
+}
+
+() accept_external_transfer(int amount) impure inline {
+    if (amount >= storage::coins_external) {
+        full_fill();
+    }
+    else { ;; received only a part, but it's bigger than the minimum value, or equals to it.
+        int percent = muldiv(amount, percent_six_precision_divisor, storage::coins_external);
+        if (percent >= storage::min_percent_to_complete) {
+            partly_fill(percent);
+        }
+        else { ;; received less than the minimum value.
+            info_problem();
+        }
+    }
+}
+
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {    
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+    slice sender_address = cs~load_msg_addr();
+    int fwd_fee_from_in_msg = cs~retrieve_fwd_fee();
+    int fwd_fee = get_original_fwd_fee(WORKCHAIN, fwd_fee_from_in_msg);
+
+    if(flags & 1) {
+        return();
+    }
+
+    load_data();
+
+     if(in_msg_body.slice_empty?()) {
+        storage::ton_extra_balance = my_balance - gas::deploy_value;
+        save_data();
+        confirm();
+        return();
+    }
+
+    int op = in_msg_body~load_uint(32);
+    int query_id = in_msg_body~load_uint(64);
+
+    if(op == op::take_wallet_address) {
+        throw_if(err::already_inited, storage::init?);
+        throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::jetton_master_address));
+
+        slice owner_address_slice = slice_refs(in_msg_body) == 1 ? in_msg_body~load_maybe_ref().begin_parse() : null();
+
+        throw_if(err::wrong_address, owner_address_slice.slice_empty?());
+
+        slice owner_address = owner_address_slice~load_msg_addr();
+
+        throw_unless(err::wrong_address, equal_slices(owner_address, my_address()) | owner_address.preload_uint(2) != 0);
+
+        storage::p2p_jetton_wallet = owner_address;
+
+        storage::init? = true;
+        save_data();
+
+        return();
+    }
+
+    throw_unless(err::not_inited, storage::init?);
+
+    if(op == op::sync_balance) {
+        throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::p2p_jetton_wallet));
+
+        storage::jetton_balance = in_msg_body~load_coins();
+        confirm();
+
+        save_data();
+        return ();
+    }
+
+    if(op == op::arbitrator_message) {
+        throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
+        throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+        accept_arbitrator_message(msg_value);
+
+        save_data();
+        return();
+    }
+
+    if(op == op::external_message) {
+        throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+        throw_unless(err::not_started, storage::transaction_max_time > 0);
+
+        throw_unless(err::time_out, now() <= storage::transaction_max_time);
+        throw_if(err::finished, storage::is_ended?);
+
+        throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::checker_address));
+
+        int amount = in_msg_body~load_uint(256);
+        slice msg_seller_external_address = in_msg_body~load_bits(256);
+        slice msg_buyer_external_address = in_msg_body~load_bits(256);
+
+        throw_unless(err::addr_doesnt_match, string_hash(storage::seller_external_address) == string_hash(msg_seller_external_address));
+        throw_unless(err::addr_doesnt_match, string_hash(storage::buyer_external_address) == string_hash(msg_buyer_external_address));
+    
+        send_cell_message(storage::checker_address, msg_value + fwd_fee + send_back_extra_value, null(), mode::pay_fees_separately + mode::ignore_errors);
+        
+        if (now() <= storage::transaction_max_time) {
+            accept_external_transfer(amount);
+        }
+        else {
+            info_problem();
+        }
+
+        storage::is_checker_transaction_received? = true;
+        save_data();
+
+        return();
+    }
+
+    if(op == op::comment_message) {
+        int comment = string_hash(in_msg_body);
+        if(comment == "Cancel"H) {
+            throw_if(err::finished, storage::is_ended?); 
+            throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
+            throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::buyer_ton_address) | equal_slices(sender_address, storage::seller_ton_address));
+            if(equal_slices(sender_address, storage::seller_ton_address)) {
+                throw_unless(err::already_started, storage::transaction_max_time == 0);
+            }
+            storage::jetton_seller = storage::jetton_balance;
+            send_tonb(storage::seller_ton_address, storage::jetton_balance);
+
+            send_message_with_comment(flags::unbounceable, storage::buyer_ton_address, gas::info_value, "Offer canceled", mode::pay_fees_separately);
+
+            send_message_with_comment(flags::unbounceable, storage::seller_ton_address, gas::info_value, "Offer canceled", mode::carry_remaining_balance + mode::ignore_errors);
+
+            storage::is_ended? = true;
+            storage::ton_seller = storage::coins_internal_ton;
+
+            save_data();
+            return(); 
+        }
+
+        if(comment == "Fullfilled"H) {
+            throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
+            full_fill();
+            send_cell_message(storage::checker_address, msg_value + fwd_fee + send_back_extra_value, null(), mode::pay_fees_separately + mode::ignore_errors);
+            
+            save_data();
+            return();
+        }
+        if(comment == "Abort"H) {
+            throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
+            abort();
+            send_cell_message(storage::checker_address, msg_value + fwd_fee + send_back_extra_value, null(), mode::pay_fees_separately + mode::ignore_errors);
+
+            save_data();
+            return();
+        }
+        if(comment == "Request wallet"H) {
+            throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address) |
+                                                   equal_slices(sender_address, storage::seller_ton_address) |
+                                                   equal_slices(sender_address, storage::buyer_ton_address)
+            );
+            cell get_wallet_payload = begin_cell()
+                                .store_uint(op::provide_wallet_address, 32)
+                                .store_uint(0, 64)
+                                .store_slice(my_address())
+                                .store_uint(true, 1)
+                            .end_cell();
+            send_cell_message(storage::jetton_master_address, gas::provide_wallet_address, get_wallet_payload, mode::pay_fees_separately);
+
+            save_data();
+            return();
+        }
+        if(comment == "Return tokens"H) {
+            throw_if(err::not_finished, storage::is_ended?);
+            throw_unless(err::out_of_gas, msg_value >= gas::jetton_transfer + gas::cancellation);
+            throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::seller_ton_address));
+            if(storage::jetton_balance > 0) {
+                send_tonb(storage::seller_ton_address, storage::jetton_balance);
+            }
+
+            send_message_with_comment(flags::unbounceable, storage::seller_ton_address, 0, "Offer canceled", mode::carry_remaining_balance + mode::ignore_errors);
+
+            storage::is_ended? = true;
+            save_data();
+            return();
+        }
+
+        return();
+    }
+
+    throw(op::unknown);
+}
+
+{- GET -}
+
+(int) get_is_confirmed() method_id {
+    load_data();
+
+    return(storage::transaction_max_time != 0);
+}
+
+(int) get_is_ended() method_id {
+    load_data();
+
+    return(storage::is_ended?);
+}
+
+(slice, slice, slice, slice, int) get_system_info() method_id {
+    load_data();
+
+    return(
+        storage::foundation_address,
+        storage::jetton_master_address,
+        storage::arbitrator_address,
+        storage::checker_address,
+        storage::service_fee_percent
+    );
+}
+
+(int, int, slice, slice, slice, slice, int, int, int, int, int, int, int) get_offer_info() method_id {
+    load_data();
+
+    return(
+        storage::is_ended?,
+        storage::is_checker_transaction_received?,
+        storage::seller_ton_address,
+        storage::seller_external_address,
+        storage::buyer_ton_address,
+        storage::buyer_external_address,
+        storage::coins_external,
+        storage::coins_internal_ton,
+        storage::coins_internal_jetton,
+        storage::min_percent_to_complete,
+        storage::transcation_max_interval,
+        storage::transaction_max_time,
+        storage::id
+    );
+}
+
+(slice) get_jetton_wallet_address() method_id {
+    load_data();
+
+    return storage::p2p_jetton_wallet;
+}
+
+(int) get_jetton_balance() method_id {
+    load_data();
+
+    return storage::jetton_balance;
+}
+
+(int) get_extra_ton_balance() method_id {
+    load_data();
+
+    return storage::ton_extra_balance;
+}
+
+(int, int, int, int, int) get_sent_values() method_id {
+    load_data();
+
+    return (
+        storage::ton_buyer,
+        storage::jetton_buyer,
+        storage::ton_seller,
+        storage::jetton_seller,
+        storage::jetton_fee
+    );
+}

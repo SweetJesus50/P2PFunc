@@ -1,0 +1,178 @@
+#include "imports/stdlib.fc";
+#include "imports/constants.fc";
+#include "imports/op-codes.fc";
+#include "imports/utils.fc";
+
+global slice storage::owner;
+global cell storage::content;
+global cell storage::p2p_code;
+global cell storage::moderators;
+
+global int storage::p2p_next_id;
+
+() load_data() impure inline {
+    slice ds = get_data().begin_parse();
+
+    storage::owner = ds~load_msg_addr();
+    storage::p2p_next_id = ds~load_uint(64);
+    storage::moderators = ds~load_dict();
+    storage::content = ds~load_ref();
+    storage::p2p_code = ds~load_ref();
+}
+
+() save_data() impure inline {
+    set_data(
+        begin_cell()
+            .store_slice(storage::owner)
+            .store_uint(storage::p2p_next_id, 64)
+            .store_dict(storage::moderators)
+            .store_ref(storage::content)
+            .store_ref(storage::p2p_code)   
+        .end_cell()
+    );
+}
+
+(slice) retrieve_moderator(slice sender) impure inline {
+    (slice moderator, int success) = storage::moderators.dict_get?(267, sender);
+    if(success) {
+        return moderator;
+    } else {
+        return null_addr();
+    }   
+}
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    if(in_msg_body.slice_empty?()) {
+        return();
+    }
+
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+    slice sender_address = cs~load_msg_addr();
+    int fwd_fee_from_msg = cs~retrieve_fwd_fee();
+    int fwd_fee = get_original_fwd_fee(WORKCHAIN, fwd_fee_from_msg);
+
+    if(flags & 1) {
+        return();
+    }
+
+    load_data();
+
+    int op = in_msg_body~load_uint(32);
+    int query_id = in_msg_body~load_uint(64);
+
+    ;; if(op == op::fulfill_message) {
+    ;;     throw_unless(err::out_of_gas, msg_value >= gas::transaction + fwd_fee);
+    ;;     throw_unless(err::unauthorized_access, equal_slices(sender_address, retrieve_moderator(sender_address)));
+    ;;     send_message_with_comment(flags::bounceable, in_msg_body~load_msg_addr(), gas::transaction, "Fullfilled", mode::pay_fees_separately);
+    ;;     send_cell_message(sender_address, msg_value + fwd_fee, null(), mode::pay_fees_separately);
+    ;;     return();
+    ;; }
+
+    ;; if(op == op::abort_message) {
+    ;;     throw_unless(err::out_of_gas, msg_value >= gas::transaction + fwd_fee);
+    ;;     throw_unless(err::unauthorized_access, equal_slices(sender_address, retrieve_moderator(sender_address)));
+    ;;     send_message_with_comment(flags::bounceable, in_msg_body~load_msg_addr(), gas::transaction, "Abort", mode::pay_fees_separately);
+    ;;     send_cell_message(sender_address, msg_value + fwd_fee, null(), mode::pay_fees_separately);
+    ;;     return();
+    ;; }
+
+    ;; if(op == op::fill_message) {
+    ;;     throw_unless(err::out_of_gas, msg_value >= gas::transaction + fwd_fee);
+    ;;     throw_unless(err::unauthorized_access, equal_slices(sender_address, retrieve_moderator(sender_address)));
+    ;;     send_cell_message(in_msg_body~load_msg_addr(), gas::transaction, begin_cell().store_uint(in_msg_body~load_uint(256), 256).end_cell(), mode::pay_fees_separately);
+    ;;     send_cell_message(sender_address, msg_value + fwd_fee, null(), mode::pay_fees_separately);
+    ;;     return();
+    ;; }
+
+    if(op == op::deploy_p2p) {
+        throw_unless(err::wrong_address, equal_slice_bits(sender_address, storage::owner));
+        throw_unless(err::out_of_gas, msg_value >= gas::transaction + gas::deploy_value);
+
+        return();
+    }
+
+    if(op == op::comment_message) {
+        int comment = string_hash(in_msg_body);
+        if(comment == "Donate"H) { return(); } ;; just accept coins
+        if(comment == "Destroy"H) {
+            throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::owner));
+            send_cell_message(storage::owner, 0, null(), mode::carry_remaining_balance + mode::selfdestruct_on_empty);
+            return();
+        }
+        return();
+    }
+
+    ;; Owner methods
+
+    throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::owner));
+    
+    if(op == 1) { ;; add moderator
+        slice new_moderator = in_msg_body~load_msg_addr();
+        (slice moderator_address, int success) = storage::moderators.dict_get?(267, new_moderator);
+
+        if(success) {
+            throw(err::moderator_exists);
+        }
+        else {
+            storage::moderators~dict_set(267, new_moderator, new_moderator);
+            send_message_with_comment(flags::bounceable, sender_address, 0, "Moderator added successfully", mode::carry_remaining_gas);
+        }
+        
+        save_data();
+        return();
+    }
+
+    if(op == 2) { ;; remove moderator
+        slice remove_moderator = in_msg_body~load_msg_addr();
+        (slice moderator_address, int success) = storage::moderators.dict_get?(267, remove_moderator);
+      
+        if(success) {
+            storage::moderators~dict_delete?(267, remove_moderator);
+            send_message_with_comment(flags::bounceable, sender_address, 0, "Moderator removed successfully", mode::carry_remaining_gas);
+        } else {
+            throw(err::no_moderator_to_remove);
+        }
+
+        save_data();
+        return();
+    }
+
+    if(op == 3) { ;; change moderators
+        storage::moderators = in_msg_body~load_dict();
+        save_data();
+        return();
+    }
+
+    throw(op::unknown);
+}
+
+(int, cell, slice) get_collection_data() method_id {
+  load_data();
+  slice cs = content.begin_parse();
+  return (storage::p2p_next_id, cs~load_ref(), storage::owner);
+}
+
+slice get_p2p_address_by_index(int index) method_id {
+    load_data();
+    cell state_init = calculate_p2p_item_state_init(index, storage::p2p_code);
+    return calculate_p2p_item_address(workchain(), state_init);
+}
+
+(slice) get_owner_address() method_id {
+    load_data();
+    return storage::owner;
+}
+
+(cell) get_list() method_id {
+    load_data();
+    return storage::moderators;
+}
+
+(int) get_is_moderator(slice address) method_id {
+    load_data();
+    (slice moderator_address, int success) = storage::moderators.dict_get?(267, address);
+    if(success) {
+        return true;
+    } else { return false; }
+}
