@@ -80,6 +80,10 @@ global int ended?;
 }
 
 () recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    if(in_msg_body.slice_empty?()) {
+        return();
+    }
+
     slice cs = in_msg_full.begin_parse();
     int flags = cs~load_uint(4);
     slice sender_address = cs~load_msg_addr();
@@ -92,22 +96,23 @@ global int ended?;
 
     load_data();
 
-    if(in_msg_body.slice_empty?()) {
-        return();
-    }
-
     int op = in_msg_body~load_uint(32);
     int query_id = in_msg_body~load_uint(64);
 
     try {
 
-        if(op::deposit) {
+        if(op::send_deposit) {
             throw_unless(err::wrong_address, equal_slices(sender_address, storage::renter_address));
             throw_unless(err::wrong_deposit, msg_value == deposit_size + gas::transaction);
+            throw_if(err::already_inited, init?);
+            throw_if(err::finished, ended?);
             storage::deposit = msg_value - gas::transaction;
-            rent_end_time = now() + storage::rent_time; 
-            init? = true;
+            rent_end_time = now() + storage::rent_time;
+            storage::delay_time = 0; 
             send_message_with_comment(flags::unbounceable, sender_address, gas::info_value, "Deposit successful", mode::pay_fees_separately);
+            init? = true;
+            request? = false;
+            ended? = false;
             save_data();
             return();
         }
@@ -124,7 +129,7 @@ global int ended?;
                 throw_if(err::finished, ended?);
 
                 ;; send payment request
-                send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Waiting for payment...", mode::pay_fees_separately);
+                send_cell_message(storage::renter_address, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Please send ").store_str_float(storage::cost, nano).store_slice(" 💎").end_cell(), mode::pay_fees_separately);
 
                 request? = true;
                 save_data();
@@ -168,7 +173,7 @@ global int ended?;
                 int value_to_send = storage::deposit - arbitrator_fee;
 
                 if(equal_slices(sender_address, storage::lessor_address)) {
-                    send_message_with_comment(flags::unbounceable, storage::renter_address, storage::cost + storage::deposit, "lessor canceled rent", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::renter_address, storage::cost + storage::deposit, "Lessor canceled rent", mode::pay_fees_separately);
                     send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "You canceled rent", mode::pay_fees_separately);
                     send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Fee from deposit", mode::pay_fees_separately);
                     send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Lessor canceled rent", mode::carry_remaining_balance + mode::selfdestruct_on_empty);
@@ -190,8 +195,7 @@ global int ended?;
 
 
         throw(op::unknown);
-    } 
-    catch (_, n) {
+    } catch (_, n) {
         send_cell_message(sender_address, 0, begin_cell().store_uint(0, 32).store_slice("Error. Code ").store_number10(n).end_cell(), mode::carry_remaining_gas);
         return();
     }

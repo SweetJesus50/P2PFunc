@@ -32,6 +32,6 @@ const int op::fulfill_message = 0xaf8b4394;
 const int op::abort_message = 0xda191993;
 const int op::fill_message = 0x045bc85a;
 
-const int op::deposit = 0xf9471134;
+const int op::send_deposit = 0x21cc405a;
 
 
