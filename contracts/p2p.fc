@@ -51,6 +51,7 @@ global int ended?;
             ended? = ds2~load_int(1);
         }
 
+        ds.end_parse();
         ds2.end_parse();
     }
 }
@@ -220,8 +221,7 @@ global int ended?;
         builder sbt_name = begin_cell();
         if(success) {
             sbt_name.store_uint(0,8).store_slice(item_name_slice).store_slice(" rental");
-        }
-        else {
+        } else {
             sbt_name.store_uint(0,8).store_slice("Rent");
         }
 
@@ -229,7 +229,7 @@ global int ended?;
             sbt_name.store_slice(" (ended)");
         }
 
-        builder sbt_descriprion = begin_cell()
+        builder sbt_description = begin_cell()
                                 .store_uint(0, 8)  ;; snake format prefix
                                 .store_slice("Cost: ")
                                 .store_str_float(storage::cost, nano)
@@ -237,6 +237,7 @@ global int ended?;
                                 .store_slice("Rent time: ")
                                 .store_number10(rent_time_days)
                                 .store_uint(32, 8)
+                                .store_slice(" day(s) ")
                                 .store_number10(rent_time_hours)
                                 .store_slice(" hours")
                                 .store_uint(10, 8)
@@ -244,7 +245,7 @@ global int ended?;
                                 .store_number10(rent_end_time);
 
         loaded_dict~udict_set(256, "name"H, begin_cell().store_ref(sbt_name.end_cell()).end_cell().begin_parse());
-        loaded_dict~udict_set(256, "description"H, begin_cell().store_ref(sbt_descriprion.end_cell()).end_cell().begin_parse());
+        loaded_dict~udict_set(256, "description"H, begin_cell().store_ref(sbt_description.end_cell()).end_cell().begin_parse());
         
         return (init?, 0, null_addr(), storage::lessor_address, begin_cell().store_uint(0, 8).store_dict(loaded_dict).end_cell());
     }
