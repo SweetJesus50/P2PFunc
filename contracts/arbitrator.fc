@@ -4,30 +4,30 @@
 #include "imports/utils.fc";
 
 global slice storage::owner;
-global cell storage::content;
-global cell storage::p2p_code;
+;; global cell storage::content;
+;; global cell storage::p2p_code;
 global cell storage::moderators;
 
-global int storage::p2p_next_id;
+;; global int storage::p2p_next_id;
 
 () load_data() impure inline {
     slice ds = get_data().begin_parse();
 
     storage::owner = ds~load_msg_addr();
-    storage::p2p_next_id = ds~load_uint(64);
+    ;; storage::p2p_next_id = ds~load_uint(64);
     storage::moderators = ds~load_dict();
-    storage::content = ds~load_ref();
-    storage::p2p_code = ds~load_ref();
+    ;; storage::content = ds~load_ref();
+    ;; storage::p2p_code = ds~load_ref();
 }
 
 () save_data() impure inline {
     set_data(
         begin_cell()
             .store_slice(storage::owner)
-            .store_uint(storage::p2p_next_id, 64)
+            ;; .store_uint(storage::p2p_next_id, 64)
             .store_dict(storage::moderators)
-            .store_ref(storage::content)
-            .store_ref(storage::p2p_code)   
+            ;; .store_ref(storage::content)
+            ;; .store_ref(storage::p2p_code)   
         .end_cell()
     );
 }
@@ -114,17 +114,17 @@ global int storage::p2p_next_id;
     throw(op::unknown);
 }
 
-(int, cell, slice) get_collection_data() method_id {
-  load_data();
-  slice cs = content.begin_parse();
-  return (storage::p2p_next_id, cs~load_ref(), storage::owner);
-}
+;; (int, cell, slice) get_collection_data() method_id {
+;;   load_data();
+;;   slice cs = content.begin_parse();
+;;   return (storage::p2p_next_id, cs~load_ref(), storage::owner);
+;; }
 
-slice get_p2p_address_by_index(int index) method_id {
-    load_data();
-    cell state_init = calculate_p2p_item_state_init(index, storage::p2p_code);
-    return calculate_p2p_item_address(workchain(), state_init);
-}
+;; slice get_p2p_address_by_index(int index) method_id {
+;;     load_data();
+;;     cell state_init = calculate_p2p_item_state_init(index, storage::p2p_code);
+;;     return calculate_p2p_item_address(workchain(), state_init);
+;; }
 
 (slice) get_owner_address() method_id {
     load_data();

@@ -1,9 +1,19 @@
-import { toNano } from '@ton/core';
+import { Address, toNano } from '@ton/core';
 import { P2p } from '../wrappers/P2p';
 import { compile, NetworkProvider } from '@ton/blueprint';
+import { buildOnchainMetadata } from '../wrappers/onChain';
 
 export async function run(provider: NetworkProvider) {
-    const p2p = provider.open(P2p.createFromConfig({}, await compile('P2p')));
+    const p2p = provider.open(P2p.createFromConfig({
+        arbitratorAddress: provider.sender().address as Address,
+        lessorAddress: Address.parse(""),
+        renterAddress: Address.parse(""),
+        content: buildOnchainMetadata({item_name: "Snowboard", image: "image_link"}),
+        cost: toNano(1),
+        arbitratorFeePercent: 3,
+        rentTime: Math.floor(Date.now() / 1000) + 300
+
+    }, await compile('P2p')));
 
     await p2p.sendDeploy(provider.sender(), toNano('0.05'));
 

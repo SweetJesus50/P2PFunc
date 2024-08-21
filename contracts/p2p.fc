@@ -25,38 +25,33 @@ global int rent_end_time;
 global int ended?;
 
 
-() load_data() {
+() load_data() impure inline {
     slice ds = get_data().begin_parse();
 
-    if(ds.slice_bits()) {
-        init? = false;
-        ended? = false;
-        request? = false;
-        storage::arbitrator_address = ds~load_msg_addr();
-        storage::lessor_address = ds~load_msg_addr();
-        storage::renter_address = ds~load_msg_addr();
+    init? = false;
+    ended? = false;
+    request? = false;
+    storage::arbitrator_address = ds~load_msg_addr();
+    storage::lessor_address = ds~load_msg_addr();
+    storage::renter_address = ds~load_msg_addr();
 
-        storage::content = ds~load_ref();
+    storage::content = ds~load_ref();
 
-        slice ds2 = ds~load_ref().begin_parse();
-        storage::cost = ds2~load_coins();
-        storage::arbitrator_fee_percent = ds2~load_uint(32);
-        storage::rent_time = ds2~load_uint(32);
-        if(ds2.slice_bits()) {
-            init? = true;
-            storage::deposit = ds2~load_coins();
-            storage::delay_time = ds2~load_uint(32);
-            rent_end_time = ds2~load_uint(32);
-            request? = ds2~load_int(1);
-            ended? = ds2~load_int(1);
-        }
-
-        ds.end_parse();
-        ds2.end_parse();
+    slice ds2 = ds~load_ref().begin_parse();
+    storage::cost = ds2~load_coins();
+    storage::arbitrator_fee_percent = ds2~load_uint(32);
+    storage::rent_time = ds2~load_uint(32);
+    if(ds2.slice_bits()) {
+        init? = true;
+        storage::deposit = ds2~load_coins();
+        storage::delay_time = ds2~load_uint(32);
+        rent_end_time = ds2~load_uint(32);
+        request? = ds2~load_int(1);
+        ended? = ds2~load_int(1);
     }
 }
 
-() save_data() {
+() save_data() impure inline {
     set_data(
         begin_cell()
             .store_slice(storage::arbitrator_address)
@@ -99,7 +94,7 @@ global int ended?;
     int op = in_msg_body~load_uint(32);
     int query_id = slice_bits(in_msg_body) == 64 ? in_msg_body~load_uint(64) : 0;
 
-    try {
+    ;; try {
 
         ;; if(op::send_deposit) {
             
@@ -109,8 +104,8 @@ global int ended?;
             int comment = string_hash(in_msg_body);
 
             if(comment == "Deposit"H) {
-                throw_unless(err::wrong_address, equal_slices(sender_address, storage::renter_address));
                 throw_unless(err::wrong_deposit, msg_value == deposit_size + gas::transaction);
+                throw_unless(err::wrong_address, equal_slices(sender_address, storage::renter_address));
                 throw_if(err::already_inited, init?);
                 throw_if(err::finished, ended?);
                 storage::deposit = msg_value - gas::transaction;
@@ -222,10 +217,10 @@ global int ended?;
 
         throw(op::unknown);
 
-    } catch (_, n) {
-        send_cell_message(sender_address, 0, begin_cell().store_uint(0, 32).store_slice("Error. Code ").store_number10(n).end_cell(), mode::carry_remaining_gas);
-        return();
-    }
+    ;; } catch (_, n) {
+    ;;     send_cell_message(sender_address, 0, begin_cell().store_uint(0, 32).store_slice("Error. Code ").store_number10(n).end_cell(), mode::carry_remaining_gas);
+    ;;     return();
+    ;; }
 
 }
 
