@@ -45,6 +45,8 @@ describe('P2p', () => {
             deploy: true,
             success: true,
         });
+
+        expect((await p2p.getStorage()).init).toBeFalsy()
         
         deployResult = await p2p.sendDeposit(renter.getSender(), toNano('0.55'))
 
@@ -62,6 +64,7 @@ describe('P2p', () => {
             body: beginCell().storeUint(0,32).storeStringTail("Deposit successful").endCell()
         })
         
+        expect((await p2p.getStorage()).init).toBeTruthy()
     });
 
     it('should deploy', async () => {

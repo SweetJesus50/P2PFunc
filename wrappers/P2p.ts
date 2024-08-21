@@ -54,4 +54,24 @@ export class P2p implements Contract {
             body: beginCell().storeUint(0, 32).storeStringTail("Deposit").endCell()
         })
     }
+
+    async getStorage(provider: ContractProvider) {
+        let { stack } = await provider.get('get_storage', [])
+
+        return {
+            init: stack.readBoolean(),
+            arbitratorAddr: stack.readAddress(),
+            lessorAddr: stack.readAddress(),
+            renterAddr: stack.readAddress(),
+            content: stack.readCell(),
+            cost: stack.readBigNumber(),
+            arbitratorFee: stack.readNumber(),
+            deposit: stack.readBigNumber(),
+            rentTime: stack.readNumber(),
+            delayTime: stack.readNumber(),
+            rentEndTime: stack.readNumber(),
+            request: stack.readBoolean(),
+            ended: stack.readBoolean()
+        }
+    }
 }

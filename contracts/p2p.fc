@@ -255,28 +255,33 @@ global int ended?;
             sbt_name.store_slice(" (ended)");
         }
 
-        builder sbt_description = begin_cell()
-                                .store_uint(0, 8)  ;; snake format prefix
-                                .store_slice("Cost: ")
-                                .store_str_float(storage::cost, nano)
-                                .store_uint(10, 8)
-                                .store_slice("Rent time: ")
-                                .store_number10(rent_time_days)
-                                .store_uint(32, 8)
-                                .store_slice(" day(s) ")
-                                .store_number10(rent_time_hours)
-                                .store_slice(" hours");
-                                
-        builder sbt_description_ref = begin_cell()
-                                .store_uint(10, 8)
-                                .store_slice("Rent end timestamp: ")
-                                .store_number10(rent_end_time)
-                                .store_uint(10, 8)
-                                .store_slice("Arbitrator percent: ")
-                                .store_number10(storage::arbitrator_fee_percent)
-                                .store_uint(37, 8);
+        builder sbt_description = begin_cell();
 
-        sbt_description = sbt_description.store_ref(sbt_description_ref.end_cell());
+        if(~ init?) {
+            sbt_description.store_slice("Waiting for deposit...💸");
+        } else {
+            sbt_description.store_uint(0, 8)  ;; snake format prefix
+            .store_slice("Cost: ")
+            .store_str_float(storage::cost, nano)
+            .store_uint(10, 8)
+            .store_slice("Rent time: ")
+            .store_number10(rent_time_days)
+            .store_uint(32, 8)
+            .store_slice(" day(s) ")
+            .store_number10(rent_time_hours)
+            .store_slice(" hours");
+                                    
+            builder sbt_description_ref = begin_cell()
+                                    .store_uint(10, 8)
+                                    .store_slice("Rent end timestamp: ")
+                                    .store_number10(rent_end_time)
+                                    .store_uint(10, 8)
+                                    .store_slice("Arbitrator percent: ")
+                                    .store_number10(storage::arbitrator_fee_percent)
+                                    .store_uint(37, 8);
+
+            sbt_description = sbt_description.store_ref(sbt_description_ref.end_cell());
+        }
 
         loaded_dict~udict_set(256, "name"H, begin_cell().store_ref(sbt_name.end_cell()).end_cell().begin_parse());
         loaded_dict~udict_set(256, "description"H, begin_cell().store_ref(sbt_description.end_cell()).end_cell().begin_parse());
@@ -298,4 +303,35 @@ slice get_authority_address() method_id {
 
 int get_revoked_time() method_id {
     return 0;
+}
+
+(int, slice, slice, slice, cell, int, int, int, int, int, int, int, int) get_storage() method_id {
+    load_data();
+    if(~ init?) {
+        return(
+            init?,
+            storage::arbitrator_address,
+            storage::lessor_address,
+            storage::renter_address,
+            storage::content,
+            storage::cost,
+            storage::arbitrator_fee_percent, 0, 0, 0, 0, 0, 0
+        );
+    } else {
+        return(
+            init?,
+            storage::arbitrator_address,
+            storage::lessor_address,
+            storage::renter_address,
+            storage::content,
+            storage::cost,
+            storage::arbitrator_fee_percent,
+            storage::deposit,
+            storage::rent_time,
+            storage::delay_time,
+            rent_end_time,
+            request?,
+            ended?
+        );
+    }
 }
