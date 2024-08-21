@@ -96,10 +96,6 @@ global int ended?;
 
     ;; try {
 
-        ;; if(op::send_deposit) {
-            
-        ;; }
-
         if(op == op::comment_message) {
             int comment = string_hash(in_msg_body);
 
@@ -171,26 +167,22 @@ global int ended?;
                 throw_unless(err::wrong_address, equal_slices(sender_address, storage::lessor_address) | equal_slices(sender_address, storage::arbitrator_address));
                 throw_if(err::finished, now() >= rent_end_time);
                 throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
+                throw_if(err::request_sent, request?);
 
-                int arbitrator_fee = muldiv(storage::cost, storage::arbitrator_fee_percent, percent_six_precision_divisor);
-                int value_to_send = storage::cost - arbitrator_fee;
+                slice who_canceled? = equal_slices(sender_address, storage::lessor_address) ? "Lessor canceled rent" : "Arbitrator canceled rent";
 
-                if(equal_slices(sender_address, storage::lessor_address)) {
-                    send_message_with_comment(flags::unbounceable, storage::renter_address, storage::cost + storage::deposit, "Lessor canceled rent", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "You canceled rent", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Fee from deposit", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Lessor canceled rent", mode::carry_remaining_balance + mode::selfdestruct_on_empty);
-                }
-                else {
-                    send_message_with_comment(flags::unbounceable, storage::renter_address, value_to_send + storage::cost, "Arbitrator canceled rent", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Arbitrator canceled rent", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Fee from deposit", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "You canceled rent", mode::carry_remaining_balance + mode::selfdestruct_on_empty);
-                }
+                send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit, who_canceled?, mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, who_canceled?, mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, who_canceled?, mode::carry_remaining_balance + mode::selfdestruct_on_empty);
 
                 ended? = true;
                 save_data();
 
+                return();
+            }
+
+            if(comment == "Abort"H) {
+                ;; TODO
                 return();
             }
 
@@ -205,7 +197,7 @@ global int ended?;
                             .store_slice(storage::arbitrator_address)
                             .store_coins(0)
                             .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 32)
-                            .store_slice("Tons successfully withdrawed");
+                            .store_slice("Tons successfully withdrawn!");
 
                 send_raw_message(msg.end_cell(), mode::carry_remaining_balance + mode::ignore_errors);
 

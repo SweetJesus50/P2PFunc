@@ -34,7 +34,7 @@ describe('P2p', () => {
             content: buildOnchainMetadata({item_name: "Snowboard", image: "image_link"}),
             cost: toNano(1),
             arbitratorFeePercent: 3,
-            rentTime: 300
+            rentTime: 3600
         }, code));
 
         let deployResult = await p2p.sendDeploy(arbitrator.getSender(), toNano('0.05'));
@@ -63,11 +63,13 @@ describe('P2p', () => {
             success: true,
             body: beginCell().storeUint(0,32).storeStringTail("Deposit successful").endCell()
         })
-        
+
         expect((await p2p.getStorage()).init).toBeTruthy()
+        expect((await p2p.getStorage()).deposit).toEqual(toNano('0.5'))
+        
     });
 
-    it('should deploy', async () => {
+    it('should deploy & send deposit', async () => {
         // the check is done inside beforeEach
         // blockchain and p2p are ready to use
     });

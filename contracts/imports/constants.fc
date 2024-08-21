@@ -51,6 +51,7 @@ const int err::no_moderator_to_remove = 60;
 const int err::wrong_deposit = 61;
 const int err::not_enough_money = 62;
 const int err::request_not_sent = 63;
+const int err::request_sent = 64;
 const int err::out_of_gas = 13;
 
 const int exc::wrong_chain = 333;
