@@ -53,12 +53,12 @@ global int ended?;
 
 () save_data() impure inline {
     set_data(
-        begin_cell()
+        begin_cell()                                        ;; 267 + 267 + 267 = 801b ;; refs = 2
             .store_slice(storage::arbitrator_address)
             .store_slice(storage::lessor_address)
             .store_slice(storage::renter_address)
             .store_ref(storage::content)
-            .store_ref(
+            .store_ref(                                     ;; 124 + 32 + 32 + 124 + 32 + 32 + 1 + 1 = 328b ;; refs = 0
                 begin_cell()
                     .store_coins(storage::cost)
                     .store_uint(storage::arbitrator_fee_percent, 32)
@@ -70,7 +70,7 @@ global int ended?;
                     .store_int(ended?, 1)
                 .end_cell()
             )
-        .end_cell()
+        .end_cell()                                         ;; total bits 801 + ^328 = 1129 ;; total refs = 2
     );
 }
 
@@ -131,7 +131,6 @@ global int ended?;
 
                 request? = true;
                 save_data();
-
                 return();
             }
 
@@ -145,7 +144,7 @@ global int ended?;
                 int arbitrator_fee = muldiv(storage::cost, storage::arbitrator_fee_percent, percent_six_precision_divisor);
                 int value_to_send = storage::cost - arbitrator_fee;
 
-                if(now >= storage::delay_time) {
+                if(now > storage::delay_time) {
                     ;; w/penalty
                     send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Arbitrator fee", mode::pay_fees_separately);
                     send_message_with_comment(flags::unbounceable, storage::lessor_address, value_to_send + storage::deposit, "Deposit as fine", mode::pay_fees_separately);
@@ -308,34 +307,36 @@ slice get_authority_address() method_id {
 int get_revoked_time() method_id {
     return 0;
 }
-
+;; 1      2      3      4     5    6    7    8    9   10   11   12   13
 (int, slice, slice, slice, cell, int, int, int, int, int, int, int, int) get_storage() method_id {
     load_data();
     if(~ init?) {
         return(
-            init?,
-            storage::arbitrator_address,
-            storage::lessor_address,
-            storage::renter_address,
-            storage::content,
-            storage::cost,
-            storage::arbitrator_fee_percent, 0, 0, 0, 0, 0, 0
+            init?,                              ;; 1
+            storage::arbitrator_address,        ;; 2
+            storage::lessor_address,            ;; 3
+            storage::renter_address,            ;; 4
+            storage::content,                   ;; 5
+            storage::cost,                      ;; 6
+            storage::arbitrator_fee_percent,    ;; 7
+            0, 0, 0, 0, 0, 0
+;;          8  9  10 11 12 13
         );
     } else {
         return(
-            init?,
-            storage::arbitrator_address,
-            storage::lessor_address,
-            storage::renter_address,
-            storage::content,
-            storage::cost,
-            storage::arbitrator_fee_percent,
-            storage::deposit,
-            storage::rent_time,
-            storage::delay_time,
-            rent_end_time,
-            request?,
-            ended?
+            init?,                              ;; 1
+            storage::arbitrator_address,        ;; 2
+            storage::lessor_address,            ;; 3
+            storage::renter_address,            ;; 4
+            storage::content,                   ;; 5
+            storage::cost,                      ;; 6
+            storage::arbitrator_fee_percent,    ;; 7
+            storage::deposit,                   ;; 8
+            storage::rent_time,                 ;; 9
+            storage::delay_time,                ;; 10
+            rent_end_time,                      ;; 11
+            request?,                           ;; 12
+            ended?                              ;; 13
         );
     }
 }

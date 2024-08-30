@@ -13,7 +13,7 @@ const int WORKCHAIN = 0;
     send_raw_message(msg, sending_mode);
 }
 
-(int) send_builder_message(slice to_address, int value, builder payload, int sending_mode) impure inline {
+(int) send_builder_message(slice to_address, int value, builder payload, int sending_mode) impure inline_ref {
     cell msg = begin_cell()
                     .store_uint(0x18, 6)
                     .store_slice(to_address)
@@ -25,7 +25,7 @@ const int WORKCHAIN = 0;
 }
 
 
-(int) send_cell_message(slice to_address, int value, cell payload, int sending_mode) impure inline {
+(int) send_cell_message(slice to_address, int value, cell payload, int sending_mode) impure inline_ref {
     cell msg = begin_cell()
                     .store_uint(0x18, 6)
                     .store_slice(to_address)
@@ -50,7 +50,7 @@ const int WORKCHAIN = 0;
 }
 
 
-(int) send_message_with_comment(int flags,slice to_address, int value, slice comment, int sending_mode) impure inline {
+(int) send_message_with_comment(int flags,slice to_address, int value, slice comment, int sending_mode) impure inline_ref {
     cell msg = begin_cell()
                     .store_uint(flags, 6)
                     .store_slice(to_address)
@@ -62,7 +62,7 @@ const int WORKCHAIN = 0;
 }
 
 (int) send_jettons(int query_id, int jetton_amount, slice to_address, slice response_address, slice jetton_wallet_address, 
-                   int msg_value, int sending_mode, int forward_ton_amount, cell forward_payload) impure inline {
+                   int msg_value, int sending_mode, int forward_ton_amount, cell forward_payload) impure inline_ref {
 
     builder msg_body = begin_cell()
                         .store_uint(op::transfer, 32)
