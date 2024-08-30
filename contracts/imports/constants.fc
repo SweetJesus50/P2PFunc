@@ -60,3 +60,5 @@ const int err::out_of_gas = 13;
 const int exc::wrong_chain = 333;
 
 const int const::moderators_max = 10;
+
+const slice zero_address = "0QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACkT"a;
