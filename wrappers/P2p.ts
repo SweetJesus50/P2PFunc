@@ -6,7 +6,7 @@ export type P2pConfig = {
     renterAddress: Address,
     content: Cell,
     cost: bigint,
-    arbitratorFeePercent: number,
+    arbitratorFeePercent: bigint,
     rentTime: number
 };
 
@@ -19,7 +19,7 @@ export function p2pConfigToCell(config: P2pConfig): Cell {
                 .storeRef(
                     beginCell()
                         .storeCoins(config.cost)
-                        .storeUint(config.arbitratorFeePercent, 32)
+                        .storeCoins(config.arbitratorFeePercent)
                         .storeUint(config.rentTime, 32)
                     .endCell()
                 )
@@ -55,6 +55,38 @@ export class P2p implements Contract {
         })
     }
 
+    async sendFinish(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().storeUint(0, 32).storeStringTail("Finish").endCell()
+        })
+    }
+
+    async sendPayment(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().storeUint(0, 32).storeStringTail("Payment").endCell()
+        })
+    }
+
+    async sendCancelRent(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().storeUint(0, 32).storeStringTail("Cancel").endCell()
+        })
+    }
+
+    async sendAbortRent(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().storeUint(0, 32).storeStringTail("Abort").endCell()
+        })
+    }
+
     async getStorage(provider: ContractProvider) {
         let { stack } = await provider.get('get_storage', [])
 
@@ -65,7 +97,7 @@ export class P2p implements Contract {
             renterAddr: stack.readAddress(),
             content: stack.readCell(),
             cost: stack.readBigNumber(),
-            arbitratorFee: stack.readNumber(),
+            arbitratorFee: stack.readBigNumber(),
             deposit: stack.readBigNumber(),
             rentTime: stack.readNumber(),
             delayTime: stack.readNumber(),

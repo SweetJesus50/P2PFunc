@@ -10,7 +10,7 @@ export async function run(provider: NetworkProvider) {
         renterAddress: Address.parse(""),
         content: buildOnchainMetadata({item_name: "Snowboard", image: "image_link"}),
         cost: toNano(1),
-        arbitratorFeePercent: 3,
+        arbitratorFeePercent: toNano("0.03"),
         rentTime: Math.floor(Date.now() / 1000) + 300
 
     }, await compile('P2p')));

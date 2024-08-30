@@ -39,7 +39,7 @@ global int ended?;
 
     slice ds2 = ds~load_ref().begin_parse();
     storage::cost = ds2~load_coins();
-    storage::arbitrator_fee_percent = ds2~load_uint(32);
+    storage::arbitrator_fee_percent = ds2~load_coins();
     storage::rent_time = ds2~load_uint(32);
     if(ds2.slice_bits()) {
         init? = true;
@@ -58,10 +58,10 @@ global int ended?;
             .store_slice(storage::lessor_address)
             .store_slice(storage::renter_address)
             .store_ref(storage::content)
-            .store_ref(                                     ;; 124 + 32 + 32 + 124 + 32 + 32 + 1 + 1 = 328b ;; refs = 0
+            .store_ref(                                     ;; 124 + 124 + 32 + 124 + 32 + 32 + 1 + 1 = 470b ;; refs = 0
                 begin_cell()
                     .store_coins(storage::cost)
-                    .store_uint(storage::arbitrator_fee_percent, 32)
+                    .store_coins(storage::arbitrator_fee_percent)
                     .store_uint(storage::rent_time, 32)
                     .store_coins(storage::deposit)
                     .store_uint(storage::delay_time, 32)
@@ -70,7 +70,7 @@ global int ended?;
                     .store_int(ended?, 1)
                 .end_cell()
             )
-        .end_cell()                                         ;; total bits 801 + ^328 = 1129 ;; total refs = 2
+        .end_cell()                                         ;; total bits 801 + ^470 = 1271 ;; total refs = 2
     );
 }
 
@@ -99,77 +99,35 @@ global int ended?;
         if(op == op::comment_message) {
             int comment = string_hash(in_msg_body);
 
+            throw_if(err::finished, ended?);
+
             if(comment == "Deposit"H) {
                 throw_unless(err::wrong_deposit, msg_value == deposit_size + gas::transaction);
                 throw_unless(err::wrong_address, equal_slices(sender_address, storage::renter_address));
                 throw_if(err::already_inited, init?);
-                throw_if(err::finished, ended?);
+
                 storage::deposit = msg_value - gas::transaction;
                 rent_end_time = now() + storage::rent_time;
                 storage::delay_time = 0; 
+
                 send_message_with_comment(flags::unbounceable, sender_address, gas::info_value, "Deposit successful", mode::pay_fees_separately);
+
                 init? = true;
                 request? = false;
                 ended? = false;
-                save_data();
 
+                save_data();
                 return();
             }
 
             throw_unless(err::not_inited, init?);
-            throw_if(err::finished, ended?);
 
-            if(comment == "Finish"H) {
-                throw_unless(err::wrong_address, equal_slices(sender_address, storage::lessor_address));
-                throw_unless(err::out_of_gas, msg_value >= gas::transaction);
-                throw_unless(err::not_finished, now() >= rent_end_time);
-                
-                storage::delay_time = rent_end_time + one_hour;
-
-                ;; send payment request
-                send_cell_message(storage::renter_address, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Send ").store_str_float(storage::cost, nano).store_slice(" 💎 with 'Payment' comment ").end_cell(), mode::pay_fees_separately);
-
-                request? = true;
-                save_data();
-                return();
-            }
-
-            if(comment = "Payment"H) {
-                throw_unless(err::not_enough_money, msg_value == storage::cost);
-                throw_unless(err::wrong_address, equal_slices(sender_address, storage::renter_address));
-                throw_unless(err::not_finished, now() >= rent_end_time);
-                throw_unless(err::request_not_sent, request?);
-
-                int now = now();
-                int arbitrator_fee = muldiv(storage::cost, storage::arbitrator_fee_percent, percent_six_precision_divisor);
-                int value_to_send = storage::cost - arbitrator_fee;
-
-                if(now > storage::delay_time) {
-                    ;; w/penalty
-                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Arbitrator fee", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::lessor_address, value_to_send + storage::deposit, "Deposit as fine", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Payment was delayed", mode::pay_fees_separately);
-                }
-                else {
-                    ;; w/o penalty
-                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Arbitrator fee", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::lessor_address, value_to_send, "Money for rent", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit, "Deposit return.", mode::pay_fees_separately);
-                }
-
-                ended? = true;
-                save_data();
-
-                return();
-            }
-
-            if(comment == "Abort"H) {
+            if(comment == "Cancel"H) { 
                 throw_unless(err::wrong_address, equal_slices(sender_address, storage::lessor_address) | equal_slices(sender_address, storage::arbitrator_address));
-                throw_if(err::finished, now() >= rent_end_time);
                 throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
                 throw_if(err::request_sent, request?); ;; consider finished rent
 
-                slice who_canceled? = equal_slices(sender_address, storage::lessor_address) ? "Lessor aborted rent" : "Arbitrator aborted rent";
+                slice who_canceled? = equal_slices(sender_address, storage::lessor_address) ? "Lessor canceled rent" : "Arbitrator canceled rent";
 
                 send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit, who_canceled?, mode::pay_fees_separately);
                 send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, who_canceled?, mode::pay_fees_separately);
@@ -181,19 +139,70 @@ global int ended?;
                 return();
             }
 
-            if(comment == "Cancel"H) {
-                throw_unless(err::wrong_address, equal_slices(sender_address, storage::lessor_address) | equal_slices(sender_address, storage::arbitrator_address));
-                throw_unless(err::renter_has_time, now() >= storage::delay_time);
-                throw_unless(err::request_not_sent, request?); ;; if request sent, but renter did not send the payment
-                throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
+            if(comment == "Finish"H) {
+                throw_unless(err::wrong_address, equal_slices(sender_address, storage::lessor_address));
+                throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+                throw_unless(err::not_finished, now() >= rent_end_time);
+                
+                storage::delay_time = rent_end_time + one_hour;
+                ;; send payment request
+                send_cell_message(storage::renter_address, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Send ").store_str_float(storage::cost, nano).store_slice(" 💎 with 'Payment' comment ").end_cell(), mode::pay_fees_separately);
 
-                send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent canceled", mode::pay_fees_separately);
-                send_message_with_comment(flags::unbounceable, storage::lessor_address, storage::deposit, "Rent canceled", mode::pay_fees_separately);
-                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Rent canceled", mode::carry_remaining_balance);
+                request? = true;
+                save_data();
+                return();
+            }
+
+            if(comment == "Payment"H) {
+                throw_unless(err::not_enough_money, msg_value == storage::cost);
+                throw_unless(err::wrong_address, equal_slices(sender_address, storage::renter_address));
+                throw_unless(err::not_finished, now() >= rent_end_time);
+                throw_unless(err::request_not_sent, request?);
+
+                int now = now();
+                int arbitrator_fee = muldiv(storage::cost, storage::arbitrator_fee_percent, percent_divisor);
+                int value_to_send = storage::cost - arbitrator_fee;
+
+                if(now > storage::delay_time) {
+                    ;; w/penalty
+                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Arbitrator fee", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::lessor_address, value_to_send + storage::deposit, "Money for rent + deposit as fine", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Payment was delayed", mode::pay_fees_separately);
+                }
+                else {
+                    ;; w/o penalty
+                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arbitrator_fee, "Arbitrator fee", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::lessor_address, value_to_send, "Money for rent", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit, "Deposit return", mode::pay_fees_separately);
+                }
 
                 ended? = true;
                 save_data();
 
+                return();
+            }
+
+            ;; arbitrator methods
+            throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
+            if(comment == "Abort"H) {
+                throw_unless(err::renter_has_time, now() >= storage::delay_time);
+                throw_unless(err::request_not_sent, request?); ;; if request sent, but renter did not send the payment
+                throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
+
+                send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Renter did not send payment. Rent aborted", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::lessor_address, storage::deposit, "Renter did not send payment. Rent aborted", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Renter did not send payment. Rent aborted", mode::carry_remaining_balance);
+
+                ended? = true;
+                save_data();
+
+                return();
+            }
+
+            if(comment == "Pause"H) {
+                return();
+            }
+            if(comment == "Unpause"H) {
                 return();
             }
 
@@ -249,9 +258,9 @@ global int ended?;
         (slice item_name_slice, int success) = loaded_dict~udict_delete_get?(256, "item_name"H);
         builder sbt_name = begin_cell();
         if(success) {
-            sbt_name.store_uint(0,8).store_slice(item_name_slice).store_slice(" rental");
+            sbt_name.store_uint(0, 8).store_slice(item_name_slice).store_slice(" rental");
         } else {
-            sbt_name.store_uint(0,8).store_slice("Rent");
+            sbt_name.store_uint(0, 8).store_slice("Rent");
         }
 
         if (ended?) {
@@ -280,7 +289,7 @@ global int ended?;
                                     .store_number10(rent_end_time)
                                     .store_uint(10, 8)
                                     .store_slice("Arbitrator percent: ")
-                                    .store_number10(storage::arbitrator_fee_percent)
+                                    .store_str_float(storage::arbitrator_fee_percent, nano)
                                     .store_uint(37, 8);
 
             sbt_description = sbt_description.store_ref(sbt_description_ref.end_cell());

@@ -1,4 +1,4 @@
-const int percent_six_precision_divisor = 100000000;
+const int percent_divisor = 1000000000; ;; 100%
 const int send_back_extra_value = 20000000;
 const int penalty_fee = 1000000;
 const int penalty_divisor = 100;
