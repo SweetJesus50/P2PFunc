@@ -32,9 +32,9 @@ describe('P2p', () => {
             lessorAddress: lessor.address,
             renterAddress: renter.address,
             content: buildOnchainMetadata({item_name: "Snowboard", image: "image_link"}),
-            cost: toNano(1),
+            cost: toNano(1),                      // 1 TON
             arbitratorFeePercent: toNano("0.03"), // 3%
-            rentTime: 3600
+            rentTime: 3600                        // 1 hour
         }, code));
 
         let deployResult = await p2p.sendDeploy(arbitrator.getSender(), toNano('0.05'));
@@ -48,7 +48,7 @@ describe('P2p', () => {
 
         expect((await p2p.getStorage()).init).toBeFalsy()
         
-        deployResult = await p2p.sendDeposit(renter.getSender(), toNano('0.55'))
+        deployResult = await p2p.sendDeposit(renter.getSender(), toNano('0.55')) // 0.5 + 0.05 (gas) // recommended deposit = 100% cost
 
         expect(deployResult.transactions).toHaveTransaction({
             from: renter.address,
@@ -211,20 +211,20 @@ describe('P2p', () => {
             from: p2p.address,
             to: renter.address,
             success: true,
-            body: beginCell().storeUint(0, 32).storeStringTail("Renter did not send payment. Rent aborted").endCell()
+            body: beginCell().storeUint(0, 32).storeStringTail("Renter did not send payment. Rent aborted.").endCell()
         })
         expect(transactionRes.transactions).toHaveTransaction({
             from: p2p.address,
             to: lessor.address,
             success: true,
             value: toNano("0.5"), // deposit as fine
-            body: beginCell().storeUint(0, 32).storeStringTail("Renter did not send payment. Rent aborted").endCell()
+            body: beginCell().storeUint(0, 32).storeStringTail("Renter did not send payment. Rent aborted.").endCell()
         })
         expect(transactionRes.transactions).toHaveTransaction({
             from: p2p.address,
             to: arbitrator.address,
             success: true,
-            body: beginCell().storeUint(0, 32).storeStringTail("Renter did not send payment. Rent aborted").endCell()
+            body: beginCell().storeUint(0, 32).storeStringTail("Renter did not send payment. Rent aborted.").endCell()
         })
         expect((await p2p.getStorage()).ended).toBeTruthy()
     })

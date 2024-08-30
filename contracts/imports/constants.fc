@@ -39,7 +39,6 @@ const int flags::unbounceable           = 0x10;
 const int err::unauthorized_access = 401;
 const int err::already_started = 50;
 const int err::already_inited = 51;
-const int err::wrong_address = 52;
 const int err::not_inited = 53;
 const int err::not_finished = 54;
 const int err::finished = 55;

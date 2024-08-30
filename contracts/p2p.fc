@@ -1,3 +1,5 @@
+#pragma version >=0.4.0;
+
 #include "imports/stdlib.fc";
 #include "imports/constants.fc";
 #include "imports/op-codes.fc";
@@ -97,13 +99,12 @@ global int ended?;
     ;; try {
 
         if(op == op::comment_message) {
-            int comment = string_hash(in_msg_body);
-
             throw_if(err::finished, ended?);
 
+            int comment = string_hash(in_msg_body);
             if(comment == "Deposit"H) {
                 throw_unless(err::wrong_deposit, msg_value == deposit_size + gas::transaction);
-                throw_unless(err::wrong_address, equal_slices(sender_address, storage::renter_address));
+                throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::renter_address));
                 throw_if(err::already_inited, init?);
 
                 storage::deposit = msg_value - gas::transaction;
@@ -123,7 +124,7 @@ global int ended?;
             throw_unless(err::not_inited, init?);
 
             if(comment == "Cancel"H) { 
-                throw_unless(err::wrong_address, equal_slices(sender_address, storage::lessor_address) | equal_slices(sender_address, storage::arbitrator_address));
+                throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::lessor_address) | equal_slices(sender_address, storage::arbitrator_address));
                 throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
                 throw_if(err::request_sent, request?); ;; consider finished rent
 
@@ -140,7 +141,7 @@ global int ended?;
             }
 
             if(comment == "Finish"H) {
-                throw_unless(err::wrong_address, equal_slices(sender_address, storage::lessor_address));
+                throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::lessor_address));
                 throw_unless(err::out_of_gas, msg_value >= gas::transaction);
                 throw_unless(err::not_finished, now() >= rent_end_time);
                 
@@ -155,7 +156,7 @@ global int ended?;
 
             if(comment == "Payment"H) {
                 throw_unless(err::not_enough_money, msg_value == storage::cost);
-                throw_unless(err::wrong_address, equal_slices(sender_address, storage::renter_address));
+                throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::renter_address));
                 throw_unless(err::not_finished, now() >= rent_end_time);
                 throw_unless(err::request_not_sent, request?);
 
@@ -189,9 +190,9 @@ global int ended?;
                 throw_unless(err::request_not_sent, request?); ;; if request sent, but renter did not send the payment
                 throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
 
-                send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Renter did not send payment. Rent aborted", mode::pay_fees_separately);
-                send_message_with_comment(flags::unbounceable, storage::lessor_address, storage::deposit, "Renter did not send payment. Rent aborted", mode::pay_fees_separately);
-                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Renter did not send payment. Rent aborted", mode::carry_remaining_balance);
+                send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Renter did not send payment. Rent aborted.", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::lessor_address, storage::deposit, "Renter did not send payment. Rent aborted.", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Renter did not send payment. Rent aborted.", mode::carry_remaining_balance);
 
                 ended? = true;
                 save_data();
