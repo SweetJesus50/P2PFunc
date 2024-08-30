@@ -123,9 +123,11 @@ global int ended?;
                 throw_unless(err::out_of_gas, msg_value >= gas::transaction);
                 throw_unless(err::not_finished, now() >= rent_end_time);
                 throw_if(err::finished, ended?);
+                
+                storage::delay_time = rent_end_time + one_hour;
 
                 ;; send payment request
-                send_cell_message(storage::renter_address, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Please send ").store_str_float(storage::cost, nano).store_slice(" 💎").end_cell(), mode::pay_fees_separately);
+                send_cell_message(storage::renter_address, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Send ").store_str_float(storage::cost, nano).store_slice(" 💎 with 'Payment' comment ").end_cell(), mode::pay_fees_separately);
 
                 request? = true;
                 save_data();
@@ -140,7 +142,6 @@ global int ended?;
                 throw_unless(err::request_not_sent, request?);
 
                 int now = now();
-                storage::delay_time = rent_end_time + one_hour;
                 int arbitrator_fee = muldiv(storage::cost, storage::arbitrator_fee_percent, percent_six_precision_divisor);
                 int value_to_send = storage::cost - arbitrator_fee;
 
@@ -163,13 +164,14 @@ global int ended?;
                 return();
             }
 
-            if(comment == "Cancel"H) {
+            if(comment == "Abort"H) {
                 throw_unless(err::wrong_address, equal_slices(sender_address, storage::lessor_address) | equal_slices(sender_address, storage::arbitrator_address));
+                throw_if(err::finished, ended?);
                 throw_if(err::finished, now() >= rent_end_time);
                 throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
-                throw_if(err::request_sent, request?);
+                throw_if(err::request_sent, request?); ;; consider finished rent
 
-                slice who_canceled? = equal_slices(sender_address, storage::lessor_address) ? "Lessor canceled rent" : "Arbitrator canceled rent";
+                slice who_canceled? = equal_slices(sender_address, storage::lessor_address) ? "Lessor aborted rent" : "Arbitrator aborted rent";
 
                 send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit, who_canceled?, mode::pay_fees_separately);
                 send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, who_canceled?, mode::pay_fees_separately);
@@ -181,31 +183,43 @@ global int ended?;
                 return();
             }
 
-            if(comment == "Abort"H) {
-                ;; TODO
+            if(comment == "Cancel"H) {
+                throw_unless(err::wrong_address, equal_slices(sender_address, storage::lessor_address) | equal_slices(sender_address, storage::arbitrator_address));
+                throw_if(err::finished, ended?);
+                throw_unless(err::renter_has_time, now() >= storage::delay_time);
+                throw_unless(err::request_not_sent, request?); ;; if request sent, but renter did not send the payment
+                throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
+
+                send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent canceled", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::lessor_address, storage::deposit, "Rent canceled", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Rent canceled", mode::carry_remaining_balance + mode::selfdestruct_on_empty);
+
+                ended? = true;
+                save_data();
+
                 return();
-            }
-
-            if(op == op::withdraw_tons) {
-                throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
-                throw_unless(err::out_of_gas, msg_value >= gas::transaction);
-
-                raw_reserve(gas::min_for_storage, 0);
-
-                var msg = begin_cell()
-                            .store_uint(flags::unbounceable, 6)
-                            .store_slice(storage::arbitrator_address)
-                            .store_coins(0)
-                            .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 32)
-                            .store_slice("Tons successfully withdrawn!");
-
-                send_raw_message(msg.end_cell(), mode::carry_remaining_balance + mode::ignore_errors);
-
-                return();            
             }
 
             return();
         }
+
+        ;;  if(op == op::withdraw_tons) {
+        ;;         throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
+        ;;         throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+
+        ;;         raw_reserve(gas::min_for_storage, 0);
+
+        ;;         var msg = begin_cell()
+        ;;                     .store_uint(flags::unbounceable, 6)
+        ;;                     .store_slice(storage::arbitrator_address)
+        ;;                     .store_coins(0)
+        ;;                     .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 32)
+        ;;                     .store_slice("Tons successfully withdrawn!");
+
+        ;;         send_raw_message(msg.end_cell(), mode::carry_remaining_balance + mode::ignore_errors);
+
+        ;;         return();            
+        ;;     }
 
         throw(op::unknown);
 

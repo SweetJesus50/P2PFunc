@@ -61,7 +61,6 @@ global cell storage::moderators;
 
     if(op == op::comment_message) {
         int comment = string_hash(in_msg_body);
-        if(comment == "Donate"H) { return(); } ;; just accept coins
         if(comment == "Destroy"H) {
             throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::owner));
             send_cell_message(storage::owner, 0, null(), mode::carry_remaining_balance + mode::selfdestruct_on_empty);
@@ -82,6 +81,16 @@ global cell storage::moderators;
             throw(err::moderator_exists);
         }
         else {
+            int counter = 0;
+            do {
+               var (_, _, f?) = storage::moderators~dict::delete_get_min(267);
+               if(f?) {
+                counter += 1;
+                if(counter == const::moderators_max) {
+                    throw(err::too_much);
+                }
+               } 
+            } until( ~ f?);
             storage::moderators~dict_set(267, new_moderator, new_moderator);
             send_message_with_comment(flags::bounceable, sender_address, 0, "Moderator added successfully", mode::carry_remaining_gas);
         }
@@ -97,18 +106,31 @@ global cell storage::moderators;
         if(success) {
             storage::moderators~dict_delete?(267, remove_moderator);
             send_message_with_comment(flags::bounceable, sender_address, 0, "Moderator removed successfully", mode::carry_remaining_gas);
+
+            save_data();
+            return();
         } else {
             throw(err::no_moderator_to_remove);
         }
-
-        save_data();
-        return();
     }
 
     if(op == 3) { ;; change moderators
-        storage::moderators = in_msg_body~load_dict();
-        save_data();
-        return();
+        cell new_moderators = in_msg_body~load_dict();
+        int counter = 0;
+        ifnot(dict_empty?(new_moderators)) {
+            do {
+                var (_, _, f?) = new_moderators~dict::delete_get_min(267);
+                counter += 1;
+                if(counter == const::moderators_max) {
+                    throw(err::too_much);
+                }
+            } until( ~ f?);
+            storage::moderators = new_moderators;
+            save_data();
+            return();
+        } else { 
+            throw(err::dict_empty); 
+        }
     }
 
     throw(op::unknown);
