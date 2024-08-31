@@ -54,10 +54,13 @@ const int err::request_sent = 64;
 const int err::renter_has_time = 65;
 const int err::too_much = 66;
 const int err::dict_empty = 67;
+const int err::paused = 68;
+const int err::max_attempts_reached = 69;
 const int err::out_of_gas = 13;
 
 const int exc::wrong_chain = 333;
 
 const int const::moderators_max = 10;
+const int const::max_attempts = 3;
 
 const slice zero_address = "0QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACkT"a;

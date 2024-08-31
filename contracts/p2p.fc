@@ -8,7 +8,7 @@
 
 ;; (!) A friendly reminder: always remember, that this smart contract does not exclude the human factor problems, but correctly manages all funds depending on situation and resolves basic troubles that may occur during rent process. If this smart contract is deployed wrong, I am not responsible for its correct operation.
 
-;; This contract is designed to match TEP-85 (https://github.com/ton-blockchain/TEPs/blob/master/text/0085-sbt-standard.md)
+;; This contract is specially designed to match TEP-85 (https://github.com/ton-blockchain/TEPs/blob/master/text/0085-sbt-standard.md)
 
 ;; The full cycle of rent looks like this: 
 ;;                                       1. Renter sends deposit with `Deposit` comment and automatically initializes contract. (`rent_end_time` is set afterwards and rent is started)
@@ -18,7 +18,7 @@
 ;;                                       5. `is_ended?` flag is set to `true` and rent considered completed.
 ;;
 ;; Possible problems during rent:
-;;                                       1. Something went wrong between lessor and renter (e.g. there is some dispute or lessor somehow forgot to send payment request) both can appeal to an arbitrator to resolve the problem. If the dispute was not resolved, arbitrator reserves the right to cancel ((!!) ONLY IF payment request was not sent and the rent is not already finished) rent by sending message with `Cancel` comment to this contract. When contract receives this message from arbitrator it sends deposit back to renter. Rent considers finished. 
+;;                                       1. Something went wrong between lessor and renter (e.g. there is some dispute or lessor somehow forgot to send payment request) both can appeal to an arbitrator to resolve the problem. Arbitrator should pause (arbitrator got only 3 attempts to pause) the rent by sending message with `Pause` comment to this smart contract to have some time to resolve the dispute. If the dispute was not resolved, arbitrator reserves the right to cancel ((!!) ONLY IF payment request was not sent and the rent is not already finished) rent by sending message with `Cancel` comment to this contract. When contract receives this message from arbitrator it sends deposit back to renter. Rent considers finished. 
 ;;                                       2. Renter did not send the payment (!) after payment request. In this case arbitrator reserves the right to abort the rent by sending message with `Abort` comment to this contract and all deposit goes to lessor as compensation. Rent considers finished.
 
 #pragma version >=0.4.0;
@@ -50,7 +50,8 @@ global int rent_end_time;                               ;; Uint32 - UNIX timesta
 global int is_ended?;                                   ;; bool - == `true` when rent is successful (renter sent the payment) || rent is canceled || rent is aborted else == `false`
 
 global int is_paused?;                                  ;; bool - is rent on pause? == `true` when rent is on pause else == `false` if unpaused
-global int storage::pause_time;
+global int storage::pause_timestamp;                    ;; Uint32 - UNIX timestamp. When the rent was paused.
+global int pause_attempts;                              ;; number of committed attempts to pause rent (3 max)
 
 
 () load_data() impure inline {
@@ -59,6 +60,7 @@ global int storage::pause_time;
     init? = false;
     is_ended? = false;
     request? = false;
+    is_paused? = false;
     storage::arbitrator_address = ds~load_msg_addr();
     storage::lessor_address = ds~load_msg_addr();
     storage::renter_address = ds~load_msg_addr();
@@ -76,6 +78,9 @@ global int storage::pause_time;
         rent_end_time = ds2~load_uint(32);
         request? = ds2~load_int(1);
         is_ended? = ds2~load_int(1);
+        is_paused? = ds2~load_int(1);
+        storage::pause_timestamp = ds2~load_uint(32);
+        pause_attempts = ds2~load_uint(8);
     }
 }
 
@@ -86,7 +91,7 @@ global int storage::pause_time;
             .store_slice(storage::lessor_address)
             .store_slice(storage::renter_address)
             .store_ref(storage::content)
-            .store_ref(                                     ;; 124 + 124 + 32 + 124 + 32 + 32 + 1 + 1 = 470b ;; refs = 0
+            .store_ref(                                     ;; 124 + 124 + 32 + 124 + 32 + 32 + 1 + 1 + 1 + 32 + 8 = 511b ;; refs = 0
                 begin_cell()
                     .store_coins(storage::cost)
                     .store_coins(storage::arbitrator_fee_percent)
@@ -96,9 +101,12 @@ global int storage::pause_time;
                     .store_uint(rent_end_time, 32)
                     .store_int(request?, 1)
                     .store_int(is_ended?, 1)
+                    .store_int(is_paused?, 1)
+                    .store_uint(storage::pause_timestamp, 32)
+                    .store_uint(pause_attempts, 8)
                 .end_cell()
             )
-        .end_cell()                                         ;; total bits 801 + ^470 = 1271 ;; total refs = 2
+        .end_cell()                                         ;; total bits 801b + ^511b = 1312b ;; total refs = 2
     );
 }
 
@@ -120,7 +128,7 @@ global int storage::pause_time;
     load_data();
 
     int op = in_msg_body~load_uint(32);
-    int query_id = slice_bits(in_msg_body) >= 64 ? in_msg_body~load_uint(64) : 0;
+    ;; int query_id = slice_bits(in_msg_body) >= 64 ? in_msg_body~load_uint(64) : 0; ;; no need to use in current logic
 
     ;; try {
 
@@ -134,6 +142,7 @@ global int storage::pause_time;
                 throw_if(err::already_inited, init?);
 
                 storage::deposit = msg_value - gas::transaction;
+
                 rent_end_time = now() + storage::rent_time;
                 storage::delay_time = 0; 
 
@@ -142,8 +151,13 @@ global int storage::pause_time;
                 init? = true;
                 request? = false;
                 is_ended? = false;
+                is_paused? = false;
+
+                storage::pause_timestamp = 0;
+                pause_attempts = 0;
 
                 save_data();
+
                 return();
             }
 
@@ -153,19 +167,28 @@ global int storage::pause_time;
                 throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::lessor_address));
                 throw_unless(err::out_of_gas, msg_value >= gas::transaction);
                 throw_unless(err::not_finished, now() >= rent_end_time);
+                throw_if(err::paused, is_paused?);
                 
-                storage::delay_time = rent_end_time + one_hour;
+                if(storage::pause_timestamp == 0) {
+                    storage::delay_time = rent_end_time + one_hour;
+                } else {
+                    int pause_timestamp = now() - storage::pause_timestamp;
+                    storage::delay_time = rent_end_time + pause_timestamp + one_hour;
+                }
                 ;; send payment request
                 send_cell_message(storage::renter_address, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Send ").store_str_float(storage::cost, nano).store_slice(" 💎 with 'Payment' comment ").end_cell(), mode::pay_fees_separately);
 
                 request? = true;
+
                 save_data();
+
                 return();
             }
 
             if(comment == "Payment"H) {
                 throw_unless(err::not_enough_money, msg_value == storage::cost);
                 throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::renter_address));
+                throw_if(err::paused, is_paused?);
                 throw_unless(err::not_finished, now() >= rent_end_time);
                 throw_unless(err::request_not_sent, request?);
 
@@ -196,6 +219,7 @@ global int storage::pause_time;
             throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
              if(comment == "Cancel"H) { 
                 throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
+                throw_if(err::paused, is_paused?);
                 throw_if(err::request_sent, request?); ;; consider finished rent
 
                 send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit, "Rent is canceled", mode::pay_fees_separately);
@@ -223,9 +247,44 @@ global int storage::pause_time;
             }
 
             if(comment == "Pause"H) {
-                return();
+                throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+                throw_if(err::request_sent, request?);
+                throw_if(err::paused, is_paused?);
+
+                if(pause_attempts < const::max_attempts) {
+                    if(storage::pause_timestamp == 0) {
+                        storage::pause_timestamp = now();
+                    } else {
+                        int now = now(); 
+                        storage::pause_timestamp = (now - storage::pause_timestamp) + now; 
+                    }
+
+                    is_paused? = true;
+
+                    send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
+
+                    pause_attempts += 1;
+                    save_data();
+
+                    return();
+                } 
+                else { throw(err::max_attempts_reached); }
             }
             if(comment == "Unpause"H) {
+                throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+                throw_if(err::request_sent, request?);
+                throw_unless(err::paused, is_paused?);
+
+                is_paused? = false;
+
+                send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
+
+                save_data();
+
                 return();
             }
 
@@ -339,6 +398,32 @@ slice get_authority_address() method_id {
 int get_revoked_time() method_id {
     return 0;
 }
+
+int get_is_paused() method_id {
+    load_data();
+    if(~ init?) {
+        return false;
+    } 
+    else {
+        return is_paused?;
+    }
+}
+
+int get_current_pause_time() method_id {
+    load_data();
+    if(~ init?) {
+        return 0;
+    }
+    else {
+        if(storage::pause_timestamp > 0) {
+            return now() - storage::pause_timestamp;
+        }
+        else { 
+            return 0; 
+        }    
+    }
+}
+
 ;; 1      2      3      4     5    6    7    8    9   10   11   12   13
 (int, slice, slice, slice, cell, int, int, int, int, int, int, int, int) get_storage() method_id {
     load_data();
