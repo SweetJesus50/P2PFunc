@@ -1,3 +1,26 @@
+;; Copyright (c) 2024 Amir Vagapov (SweetJesus50)
+
+;; P2P Smart Contract
+
+;; Allows you to rent something to someone, 
+;; provided that an agreement or other legal document 
+;; is signed in advance between the lessor and the renter.
+
+;; (!) A friendly reminder: always remember, that this smart contract does not exclude the human factor problems, but correctly manages all funds depending on situation and resolves basic troubles that may occur during rent process. If this smart contract is deployed wrong, I am not responsible for its correct operation.
+
+;; This contract is designed to match TEP-85 (https://github.com/ton-blockchain/TEPs/blob/master/text/0085-sbt-standard.md)
+
+;; The full cycle of rent looks like this: 
+;;                                       1. Renter sends deposit with `Deposit` comment and automatically initializes contract. (`rent_end_time` is set afterwards and rent is started)
+;;                                       2. After current time >= `rent_end_time` lessor sends `Finish` message and contract sends payment request to renter. (after request is sent `delay_time` is set and renter has exactly 1 hour after `rent_end_time` to send the payment for rent, (!) otherwise deposit goes to lessor)
+;;                                       3. After renter received request message he must send a message with `Payment` comment with the exact amount of TON attached to the message that is equal to `cost`
+;;                                       4. After contract receives `Payment` message in time (current time < `delay_time`) it sends exactly 3 messages. 1 to arbitrator with msg_value = `arbitrator_fee_percent` from `cost` TON ; 1 to lessor with msg_value = `cost` - `arbitrator_fee_percent` TON ; 1 to renter with msg_value = `deposit`
+;;                                       5. `is_ended?` flag is set to `true` and rent considered completed.
+;;
+;; Possible problems during rent:
+;;                                       1. Something went wrong between lessor and renter (e.g. there is some dispute or lessor somehow forgot to send payment request) both can appeal to an arbitrator to resolve the problem. If the dispute was not resolved, arbitrator reserves the right to cancel ((!!) ONLY IF payment request was not sent and the rent is not already finished) rent by sending message with `Cancel` comment to this contract. When contract receives this message from arbitrator it sends deposit back to renter. Rent considers finished. 
+;;                                       2. Renter did not send the payment (!) after payment request. In this case arbitrator reserves the right to abort the rent by sending message with `Abort` comment to this contract and all deposit goes to lessor as compensation. Rent considers finished.
+
 #pragma version >=0.4.0;
 
 #include "imports/stdlib.fc";
@@ -5,33 +28,36 @@
 #include "imports/op-codes.fc";
 #include "imports/utils.fc";
 
-global int init?;
+global int init?;                                       ;; bool - == `true` when renter sent deposit else == `false`
 ;; global int storage::index; ;; if sbt not single
-global int request?;
+global int request?;                                    ;; bool - request for payment sent by lessor to renter
 
-global slice storage::arbitrator_address;
+global slice storage::arbitrator_address;               ;; MsgAddressInt
 
-global slice storage::lessor_address;
-global slice storage::renter_address;
+global slice storage::lessor_address;                   ;; MasgAddressInt
+global slice storage::renter_address;                   ;; MasgAddressInt
 
-global cell storage::content;
+global cell storage::content;                           ;; Cell - SBT metadata (`item_name` + `image_link`)
 
-global int storage::cost;
-global int storage::arbitrator_fee_percent;
-global int storage::deposit;
+global int storage::cost;                               ;; Coins - Cost of the Rent
+global int storage::arbitrator_fee_percent;             ;; Coins - Arbitrator fee percent (0.1 = 10% | 1 = 100%)
+global int storage::deposit;                            ;; Coins - Deposit, that renter sends to initialize contract
 
-global int storage::rent_time;
-global int storage::delay_time;
-global int rent_end_time;
+global int storage::rent_time;                          ;; Uint32 - Rent duration time in seconds
+global int storage::delay_time;                         ;; Uint32 - UNIX timestamp (`rent_time + 1 hour` in seconds)
+global int rent_end_time;                               ;; Uint32 - UNIX timestamp (`now() + rent_time`)
 
-global int ended?;
+global int is_ended?;                                   ;; bool - == `true` when rent is successful (renter sent the payment) || rent is canceled || rent is aborted else == `false`
+
+global int is_paused?;                                  ;; bool - is rent on pause? == `true` when rent is on pause else == `false` if unpaused
+global int storage::pause_time;
 
 
 () load_data() impure inline {
     slice ds = get_data().begin_parse();
 
     init? = false;
-    ended? = false;
+    is_ended? = false;
     request? = false;
     storage::arbitrator_address = ds~load_msg_addr();
     storage::lessor_address = ds~load_msg_addr();
@@ -49,7 +75,7 @@ global int ended?;
         storage::delay_time = ds2~load_uint(32);
         rent_end_time = ds2~load_uint(32);
         request? = ds2~load_int(1);
-        ended? = ds2~load_int(1);
+        is_ended? = ds2~load_int(1);
     }
 }
 
@@ -69,7 +95,7 @@ global int ended?;
                     .store_uint(storage::delay_time, 32)
                     .store_uint(rent_end_time, 32)
                     .store_int(request?, 1)
-                    .store_int(ended?, 1)
+                    .store_int(is_ended?, 1)
                 .end_cell()
             )
         .end_cell()                                         ;; total bits 801 + ^470 = 1271 ;; total refs = 2
@@ -99,7 +125,7 @@ global int ended?;
     ;; try {
 
         if(op == op::comment_message) {
-            throw_if(err::finished, ended?);
+            throw_if(err::finished, is_ended?);
 
             int comment = string_hash(in_msg_body);
             if(comment == "Deposit"H) {
@@ -115,30 +141,13 @@ global int ended?;
 
                 init? = true;
                 request? = false;
-                ended? = false;
+                is_ended? = false;
 
                 save_data();
                 return();
             }
 
             throw_unless(err::not_inited, init?);
-
-            if(comment == "Cancel"H) { 
-                throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::lessor_address) | equal_slices(sender_address, storage::arbitrator_address));
-                throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
-                throw_if(err::request_sent, request?); ;; consider finished rent
-
-                slice who_canceled? = equal_slices(sender_address, storage::lessor_address) ? "Lessor canceled rent" : "Arbitrator canceled rent";
-
-                send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit, who_canceled?, mode::pay_fees_separately);
-                send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, who_canceled?, mode::pay_fees_separately);
-                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, who_canceled?, mode::carry_remaining_balance);
-
-                ended? = true;
-                save_data();
-
-                return();
-            }
 
             if(comment == "Finish"H) {
                 throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::lessor_address));
@@ -177,7 +186,7 @@ global int ended?;
                     send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit, "Deposit return", mode::pay_fees_separately);
                 }
 
-                ended? = true;
+                is_ended? = true;
                 save_data();
 
                 return();
@@ -185,6 +194,19 @@ global int ended?;
 
             ;; arbitrator methods
             throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
+             if(comment == "Cancel"H) { 
+                throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
+                throw_if(err::request_sent, request?); ;; consider finished rent
+
+                send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit, "Rent is canceled", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Rent is canceled", mode::carry_remaining_balance);
+
+                is_ended? = true;
+                save_data();
+
+                return();
+            }
             if(comment == "Abort"H) {
                 throw_unless(err::renter_has_time, now() >= storage::delay_time);
                 throw_unless(err::request_not_sent, request?); ;; if request sent, but renter did not send the payment
@@ -194,7 +216,7 @@ global int ended?;
                 send_message_with_comment(flags::unbounceable, storage::lessor_address, storage::deposit, "Renter did not send payment. Rent aborted.", mode::pay_fees_separately);
                 send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Renter did not send payment. Rent aborted.", mode::carry_remaining_balance);
 
-                ended? = true;
+                is_ended? = true;
                 save_data();
 
                 return();
@@ -264,7 +286,7 @@ global int ended?;
             sbt_name.store_uint(0, 8).store_slice("Rent");
         }
 
-        if (ended?) {
+        if (is_ended?) {
             sbt_name.store_slice(" (ended)");
         }
 
@@ -346,7 +368,7 @@ int get_revoked_time() method_id {
             storage::delay_time,                ;; 10
             rent_end_time,                      ;; 11
             request?,                           ;; 12
-            ended?                              ;; 13
+            is_ended?                           ;; 13
         );
     }
 }
