@@ -4,8 +4,7 @@ const int op::internal_transfer = 0x178d4519;
 const int op::excesses = 0xd53276db;
 const int op::burn = 0x595f07bc;
 const int op::burn_notification = 0x7bdd97de;
-const int op::withdraw_tons = 0x6d8e5e3c;
-const int op::withdraw_jettons = 0x768a50b2;
+
 
 const int op::provide_wallet_address = 0x2c76b973;
 const int op::take_wallet_address = 0xd1735400;
@@ -16,11 +15,9 @@ const int op::change_admin = 0x4840664f;
 const int op::change_content = 0x5773d1f5;
 
 
-
-
-const int op::sync_balance = 0x39a83d87;
-const int op::arbitrator_message = 0x44e6fb34;
-const int op::external_message = 0xcd9a4d97;
+;; const int op::sync_balance = 0x39a83d87;
+;; const int op::arbitrator_message = 0x44e6fb34;
+;; const int op::external_message = 0xcd9a4d97;
 
 const int op::comment_message = 0;
 
@@ -28,10 +25,17 @@ const int op::unknown = 0xffff;
 
 ;; Arbitrator Messages
 
-const int op::fulfill_message = 0xaf8b4394;
-const int op::abort_message = 0xda191993;
-const int op::fill_message = 0x045bc85a;
+;; const int op::fulfill_message = 0xaf8b4394;
+;; const int op::abort_message = 0xda191993;
+;; const int op::fill_message = 0x045bc85a;
 
-const int op::send_deposit = 0x21cc405a;
+const int op::cancel_rent = 0x34bae2ab;
+const int op::pause_rent = 0x92720da6;
+const int op::unpause_rent = 0xe30a304d;
+
+const int op::withdraw_ton = 0x6d8e5e3c;
+const int op::withdraw_jettons = 0x768a50b2;
+
+
 
 

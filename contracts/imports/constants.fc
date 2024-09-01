@@ -6,6 +6,7 @@ const int penalty_divisor = 100;
 const int deposit_size = 500000000; ;; 0.5 TON for example
 
 const int one_hour = 60 * 60;
+const int one_and_half_hour = 60 * 60 + 30 * 60;
 const int one_day = 24 * 60 * 60;
 const int nano = 1000000000;
 
@@ -56,6 +57,7 @@ const int err::too_much = 66;
 const int err::dict_empty = 67;
 const int err::paused = 68;
 const int err::max_attempts_reached = 69;
+const int err::invalid_query_id = 70;
 const int err::out_of_gas = 13;
 
 const int exc::wrong_chain = 333;

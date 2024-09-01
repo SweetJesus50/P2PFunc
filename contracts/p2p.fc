@@ -91,7 +91,7 @@ global int pause_attempts;                              ;; number of committed a
             .store_slice(storage::lessor_address)
             .store_slice(storage::renter_address)
             .store_ref(storage::content)
-            .store_ref(                                     ;; 124 + 124 + 32 + 124 + 32 + 32 + 1 + 1 + 1 + 32 + 8 = 511b ;; refs = 0
+            .store_ref(                                     ;; 124 + 124 + 32 + 124 + 32 + 32 + 1 + 1 + 1 + 8 = 511b ;; refs = 0
                 begin_cell()
                     .store_coins(storage::cost)
                     .store_coins(storage::arbitrator_fee_percent)
@@ -107,7 +107,7 @@ global int pause_attempts;                              ;; number of committed a
                 .end_cell()
             )
         .end_cell()                                         ;; total bits 801b + ^511b = 1312b ;; total refs = 2
-    );
+    );                                                      ;; total global variables = 16
 }
 
 () recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
@@ -128,7 +128,7 @@ global int pause_attempts;                              ;; number of committed a
     load_data();
 
     int op = in_msg_body~load_uint(32);
-    ;; int query_id = slice_bits(in_msg_body) >= 64 ? in_msg_body~load_uint(64) : 0; ;; no need to use in current logic
+    int query_id = slice_bits(in_msg_body) >= 64 ? in_msg_body~load_uint(64) : 0;
 
     ;; try {
 
@@ -163,18 +163,14 @@ global int pause_attempts;                              ;; number of committed a
 
             throw_unless(err::not_inited, init?);
 
-            if(comment == "Finish"H) {
+            if(comment == "Finish"H) { ;; before sending it lessor must check that everything is ok
                 throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::lessor_address));
                 throw_unless(err::out_of_gas, msg_value >= gas::transaction);
                 throw_unless(err::not_finished, now() >= rent_end_time);
                 throw_if(err::paused, is_paused?);
                 
-                if(storage::pause_timestamp == 0) {
-                    storage::delay_time = rent_end_time + one_hour;
-                } else {
-                    int pause_timestamp = now() - storage::pause_timestamp;
-                    storage::delay_time = rent_end_time + pause_timestamp + one_hour;
-                }
+                storage::delay_time = rent_end_time + one_and_half_hour;
+               
                 ;; send payment request
                 send_cell_message(storage::renter_address, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Send ").store_str_float(storage::cost, nano).store_slice(" 💎 with 'Payment' comment ").end_cell(), mode::pay_fees_separately);
 
@@ -217,20 +213,6 @@ global int pause_attempts;                              ;; number of committed a
 
             ;; arbitrator methods
             throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
-             if(comment == "Cancel"H) { 
-                throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
-                throw_if(err::paused, is_paused?);
-                throw_if(err::request_sent, request?); ;; consider finished rent
-
-                send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit, "Rent is canceled", mode::pay_fees_separately);
-                send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
-                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Rent is canceled", mode::carry_remaining_balance);
-
-                is_ended? = true;
-                save_data();
-
-                return();
-            }
             if(comment == "Abort"H) {
                 throw_unless(err::renter_has_time, now() >= storage::delay_time);
                 throw_unless(err::request_not_sent, request?); ;; if request sent, but renter did not send the payment
@@ -246,68 +228,116 @@ global int pause_attempts;                              ;; number of committed a
                 return();
             }
 
-            if(comment == "Pause"H) {
-                throw_unless(err::out_of_gas, msg_value >= gas::transaction);
-                throw_if(err::request_sent, request?);
-                throw_if(err::paused, is_paused?);
+            return();
+        }
 
-                if(pause_attempts < const::max_attempts) {
-                    if(storage::pause_timestamp == 0) {
-                        storage::pause_timestamp = now();
-                    } else {
-                        int now = now(); 
-                        storage::pause_timestamp = (now - storage::pause_timestamp) + now; 
-                    }
+        ;; arbitrator methods
+        throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
 
-                    is_paused? = true;
+        if(op == op::cancel_rent) { 
+            throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
+            throw_unless(err::not_inited, init?);
+            throw_if(err::finished, is_ended?);
+            throw_if(err::request_sent, request?); ;; consider finished rent
 
-                    send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
+            int arb_part = muldiv(storage::deposit, storage::arbitrator_fee_percent, percent_divisor);
 
-                    pause_attempts += 1;
+            if(is_paused?) { ;; when dispute rent should be paused first
+                ;; e.g. dispute led to rent cancellation 
+                if(query_id == 1) { ;; lessor won
+                    send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::lessor_address, storage::deposit - arb_part, "Rent is canceled", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Rent is canceled", mode::carry_remaining_balance);
+
+                    is_ended? = true;
                     save_data();
 
                     return();
-                } 
-                else { throw(err::max_attempts_reached); }
+                }
+                if(query_id == 2) { ;; renter won
+                    send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit - arb_part, "Rent is canceled", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
+                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Rent is canceled", mode::carry_remaining_balance);
+
+                    is_ended? = true;
+                    save_data();
+
+                    return();
+                }
+                else { throw(err::invalid_query_id); }
             }
-            if(comment == "Unpause"H) {
-                throw_unless(err::out_of_gas, msg_value >= gas::transaction);
-                throw_if(err::request_sent, request?);
-                throw_unless(err::paused, is_paused?);
+            else { ;; just cancel (if no query_id || query_id != 1 || query_id != 2)
+                send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit, "Rent is canceled", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Rent is canceled", mode::carry_remaining_balance);
 
-                is_paused? = false;
-
-                send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
-                send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
-                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
-
+                is_ended? = true;
                 save_data();
 
                 return();
             }
+        }
+
+        if(op == op::pause_rent) {
+            throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+            throw_if(err::request_sent, request?);
+            throw_if(err::paused, is_paused?);
+
+            if(pause_attempts < const::max_attempts) {
+                if(storage::pause_timestamp == 0) {
+                    storage::pause_timestamp = now();
+                } else {
+                    int now = now(); 
+                    storage::pause_timestamp = (now - storage::pause_timestamp) + now; 
+                }
+
+                is_paused? = true;
+
+                send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
+
+                pause_attempts += 1;
+                save_data();
+
+                return();
+            } 
+            else { throw(err::max_attempts_reached); }
+        }
+
+        if(op == op::unpause_rent) {
+            throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+            throw_if(err::request_sent, request?);
+            throw_unless(err::paused, is_paused?);
+
+            if(query_id == 1) { ;; if lessor won - reduce rent_end_time as penalty
+                rent_end_time = rent_end_time - (now() - storage::pause_timestamp);
+            }
+            if(query_id == 2) { ;; if renter won - increase rent_end_time as penalty
+                rent_end_time = rent_end_time + (now() - storage::pause_timestamp);
+            }
+
+            is_paused? = false;
+
+            send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
+            send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
+            send_message_with_comment(flags::unbounceable, storage::arbitrator_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
+
+            save_data();
 
             return();
         }
 
-        ;;  if(op == op::withdraw_tons) {
-        ;;         throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
-        ;;         throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+        if(op == op::withdraw_ton) {
+            throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+            throw_unless(err::not_finished, is_ended?);
 
-        ;;         raw_reserve(gas::min_for_storage, 0);
+            raw_reserve(gas::min_for_storage, 0);
 
-        ;;         var msg = begin_cell()
-        ;;                     .store_uint(flags::unbounceable, 6)
-        ;;                     .store_slice(storage::arbitrator_address)
-        ;;                     .store_coins(0)
-        ;;                     .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 32)
-        ;;                     .store_slice("Tons successfully withdrawn!");
+            send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Tons successfully withdrawn!", mode::carry_remaining_balance + mode::ignore_errors);
 
-        ;;         send_raw_message(msg.end_cell(), mode::carry_remaining_balance + mode::ignore_errors);
-
-        ;;         return();            
-        ;;     }
+            return();            
+        }
 
         throw(op::unknown);
 
