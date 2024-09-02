@@ -22,6 +22,7 @@ const int op::change_content = 0x5773d1f5;
 const int op::comment_message = 0;
 
 const int op::unknown = 0xffff;
+const int op::unknown_comment_action = 0xeeee;
 
 ;; Arbitrator Messages
 
@@ -34,7 +35,8 @@ const int op::pause_rent = 0x92720da6;
 const int op::unpause_rent = 0xe30a304d;
 
 const int op::withdraw_ton = 0x6d8e5e3c;
-const int op::withdraw_jettons = 0x768a50b2;
+const int op::withdraw_jetton = 0x768a50b2;
+const int op::change_jetton_wallet = 0x70eecd6f;
 
 
 

@@ -71,11 +71,11 @@ export class P2p implements Contract {
         })
     }
 
-    async sendCancelRent(provider: ContractProvider, via: Sender, value: bigint) {
+    async sendCancelRent(provider: ContractProvider, via: Sender, value: bigint, queryId?: number) {
         await provider.internal(via, {
             value,
             sendMode: SendMode.PAY_GAS_SEPARATELY,
-            body: beginCell().storeUint(0, 32).storeStringTail("Cancel").endCell()
+            body: beginCell().storeUint(0x34bae2ab, 32).storeUint(queryId! | 0, 64).endCell()
         })
     }
 

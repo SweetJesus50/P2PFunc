@@ -135,7 +135,7 @@ global cell storage::moderators;
         }
     }
 
-    if(op == op::withdraw_tons) {
+    if(op == op::withdraw_ton) {
         throw_unless(err::out_of_gas, msg_value >= gas::transaction);
 
         raw_reserve(gas::min_for_storage, 0);
