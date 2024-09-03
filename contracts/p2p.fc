@@ -252,9 +252,11 @@ global int pause_attempts;                              ;; number of committed a
                 if(query_id == 1) { ;; the dispute was resolved in favor of the lessor
                     send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
                     send_message_with_comment(flags::unbounceable, storage::lessor_address, storage::deposit - arb_part, "Rent is canceled", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Rent is canceled", mode::carry_remaining_balance);
+                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arb_part, "Rent is canceled", mode::pay_fees_separately);
 
+                    is_paused? = false; ;; rent canceled, no pause
                     is_ended? = true;
+
                     save_data();
 
                     return();
@@ -262,9 +264,11 @@ global int pause_attempts;                              ;; number of committed a
                 if(query_id == 2) { ;; the dispute was resolved in favor of the renter
                     send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit - arb_part, "Rent is canceled", mode::pay_fees_separately);
                     send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
-                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Rent is canceled", mode::carry_remaining_balance);
+                    send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arb_part, "Rent is canceled", mode::pay_fees_separately);
 
+                    is_paused? = false; ;; rent canceled, no pause
                     is_ended? = true;
+
                     save_data();
 
                     return();
@@ -461,8 +465,8 @@ int get_current_pause_time() method_id {
     }
 }
 
-;; 1      2      3      4     5    6    7    8    9   10   11   12   13
-(int, slice, slice, slice, cell, int, int, int, int, int, int, int, int) get_storage() method_id {
+;; 1      2      3      4     5    6    7    8    9   10   11   12   13   14   15
+(int, slice, slice, slice, cell, int, int, int, int, int, int, int, int, int, int) get_storage() method_id {
     load_data();
     if(~ init?) {
         return(
@@ -473,8 +477,8 @@ int get_current_pause_time() method_id {
             storage::content,                   ;; 5
             storage::cost,                      ;; 6
             storage::arbitrator_fee_percent,    ;; 7
-            0, 0, 0, 0, 0, 0
-;;          8  9  10 11 12 13
+            0, 0, 0, 0, 0, 0, 0, 0
+;;          8  9  10 11 12 13 14 15 
         );
     } else {
         return(
@@ -490,7 +494,9 @@ int get_current_pause_time() method_id {
             storage::delay_time,                ;; 10
             rent_end_time,                      ;; 11
             request?,                           ;; 12
-            is_ended?                           ;; 13
+            is_ended?,                          ;; 13
+            storage::pause_timestamp,           ;; 14
+            pause_attempts                      ;; 15
         );
     }
 }

@@ -292,7 +292,9 @@ global int pause_attempts;                              ;; number of committed a
                 send_jettons(query_id, arb_part, storage::arbitrator_address, storage::arbitrator_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Rent is cancelled").end_cell());
                 send_jettons(query_id, storage::deposit - arb_part, storage::lessor_address, storage::lessor_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Rent is cancelled").end_cell());
 
+                is_paused? = false; ;; rent canceled, no pause
                 is_ended? = true;
+                
                 save_data();
 
                 return();
@@ -302,7 +304,9 @@ global int pause_attempts;                              ;; number of committed a
                 send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
                 send_jettons(query_id, arb_part, storage::arbitrator_address, storage::arbitrator_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Rent is cancelled").end_cell());
 
+                is_paused? = false; ;; rent canceled, no pause
                 is_ended? = true;
+
                 save_data();
 
                 return();

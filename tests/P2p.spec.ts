@@ -138,10 +138,10 @@ describe('P2p', () => {
         blockchain.now!! += 3600
         let transactionRes = await p2p.sendFinish(lessor.getSender(), toNano("0.05"))
         
-        expect((await p2p.getStorage()).delayTime).toEqual(blockchain.now!! + 3600) // `delayTime` = `rentTime` + 3600 (1 hour)
+        expect((await p2p.getStorage()).delayTime).toEqual(blockchain.now!! + 5400) // `delayTime` = `rentTime` + 5400 (1 hour 30 minutes)
         expect((await p2p.getStorage()).request).toBeTruthy()
 
-        blockchain.now!! += 3601 // 1 hour since rentTime passed -> payment delayed -> take deposit from renter and send it to lessor
+        blockchain.now!! += 5401 // 1 hour since rentTime passed -> payment delayed -> take deposit from renter and send it to lessor
 
         const cost = (await p2p.getStorage()).cost
 
@@ -171,28 +171,28 @@ describe('P2p', () => {
         expect((await p2p.getStorage()).ended).toBeTruthy()
     })
 
-    it('should let lessor cancel rent before finish message', async () => { // (e.g. if something went wrong between renter & lessor)
+    it('should let arbitrator cancel rent before finish message', async () => { // (e.g. if something went wrong between renter & lessor)
         expect((await p2p.getStorage()).request).toBeFalsy()
-        let transactionRes = await p2p.sendCancelRent(lessor.getSender(), toNano("0.05"))
+        let transactionRes = await p2p.sendCancelRent(arbitrator.getSender(), toNano("0.05"))
         
         expect(transactionRes.transactions).toHaveTransaction({
             from: p2p.address,
             to: renter.address,
             value: toNano("0.5"), // renter gets deposit back
             success: true,
-            body: beginCell().storeUint(0, 32).storeStringTail("Lessor canceled rent").endCell()
+            body: beginCell().storeUint(0, 32).storeStringTail("Rent is canceled").endCell()
         })
         expect(transactionRes.transactions).toHaveTransaction({
             from: p2p.address,
             to: lessor.address,
             success: true,
-            body: beginCell().storeUint(0, 32).storeStringTail("Lessor canceled rent").endCell()
+            body: beginCell().storeUint(0, 32).storeStringTail("Rent is canceled").endCell()
         })
         expect(transactionRes.transactions).toHaveTransaction({
             from: p2p.address,
             to: arbitrator.address,
             success: true,
-            body: beginCell().storeUint(0, 32).storeStringTail("Lessor canceled rent").endCell()
+            body: beginCell().storeUint(0, 32).storeStringTail("Rent is canceled").endCell()
         })
         expect((await p2p.getStorage()).ended).toBeTruthy()
     })
@@ -203,7 +203,7 @@ describe('P2p', () => {
         
         expect((await p2p.getStorage()).request).toBeTruthy()
 
-        blockchain.now!! += 21600 // let's assume that renter did not send the payment even after 6 hours
+        blockchain.now!! += 86400 // let's assume that renter did not send the payment even after 24 hours
 
         transactionRes = await p2p.sendAbortRent(arbitrator.getSender(), toNano("0.05"))
 
@@ -226,6 +226,61 @@ describe('P2p', () => {
             success: true,
             body: beginCell().storeUint(0, 32).storeStringTail("Renter did not send payment. Rent aborted.").endCell()
         })
+        expect((await p2p.getStorage()).ended).toBeTruthy()
+    })
+
+    it('should emulate dispute between lessor and renter and continue rent', async () => {
+        // let's assume that lessor and renter have dispute and they appeal to arbitrator to resolve it and continue the rent
+        
+        // first set rent on pause
+        let transactionRes = await p2p.sendPauseRent(arbitrator.getSender(), toNano("0.05"))
+
+        expect(await p2p.getIsPaused()).toBeTruthy()
+
+        blockchain.now!! += 7200 // pause was for 2 hours
+
+        // dispute resolved -> continue rent
+        // for example dispute resolved in favor of the lessor
+
+        let rentEndTimeBefore = (await p2p.getStorage()).rentEndTime
+
+        transactionRes = await p2p.sendUnpauseRent(arbitrator.getSender(), toNano("0.05"), 1) // queryId = 1 (lessor)
+
+        expect((await p2p.getStorage()).rentEndTime).toEqual(rentEndTimeBefore - 7200) // minus `pause_time` from rentTime, because lessor won the dispute
+    })
+
+    it('should emulate dispute between lessor and renter and cancel rent', async () => {
+        // let's assume that lessor and renter have serious dispute and they appeal to arbitrator to resolve it and cancel the rent
+        
+        // first set rent on pause
+        let transactionRes = await p2p.sendPauseRent(arbitrator.getSender(), toNano("0.05"))
+
+        expect(await p2p.getIsPaused()).toBeTruthy()
+
+        blockchain.now!! += 10800 // pause was for 3 hours
+
+        // dispute resolved -> cancel rent
+        // dispute resolved in favor of the renter
+
+        transactionRes = await p2p.sendCancelRent(arbitrator.getSender(), toNano("0.05"), 2) // queryId = 2 (renter)
+
+        console.log(printTransactionFees(transactionRes.transactions))
+
+        expect(transactionRes.transactions).toHaveTransaction({ // renter gets his deposit back (because renter won the dispute) - arbitrator fee
+            from: p2p.address,
+            to: renter.address,
+            value: toNano("0.485"), // 0.5 - 0.015 (arbitrator fee 3%) = 0.485
+            body: beginCell().storeUint(0, 32).storeStringTail("Rent is canceled").endCell(),
+            success: true
+        })
+        expect(transactionRes.transactions).toHaveTransaction({
+            from: p2p.address,
+            to: arbitrator.address,
+            value: toNano("0.015"), // 0.015 (arbitrator fee 3% from 0.5)
+            body: beginCell().storeUint(0, 32).storeStringTail("Rent is canceled").endCell(),
+            success: true
+        })
+        expect(await p2p.getIsPaused()).toBeFalsy()
         expect((await p2p.getStorage()).ended).toBeTruthy()
     })
 });

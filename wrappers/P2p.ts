@@ -87,6 +87,22 @@ export class P2p implements Contract {
         })
     }
 
+    async sendPauseRent(provider: ContractProvider, via: Sender, value: bigint, queryId?: number) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().storeUint(0x92720da6, 32).storeUint(queryId! | 0, 64).endCell()
+        })
+    }
+
+    async sendUnpauseRent(provider: ContractProvider, via: Sender, value: bigint, queryId?: number) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().storeUint(0xe30a304d, 32).storeUint(queryId! | 0, 64).endCell()
+        })
+    }
+
     async getStorage(provider: ContractProvider) {
         let { stack } = await provider.get('get_storage', [])
 
@@ -103,7 +119,21 @@ export class P2p implements Contract {
             delayTime: stack.readNumber(),
             rentEndTime: stack.readNumber(),
             request: stack.readBoolean(),
-            ended: stack.readBoolean()
+            ended: stack.readBoolean(),
+            pauseTimestamp: stack.readNumber(),
+            pauseAttemtps: stack.readNumber()
         }
+    }
+
+    async getCurrentPauseTime(provider: ContractProvider) {
+        let { stack } = await provider.get('get_current_pause_time', [])
+
+        return stack.readNumber()
+    }
+
+    async getIsPaused(provider: ContractProvider) {
+        let { stack } = await provider.get('get_is_paused', [])
+
+        return stack.readBoolean()
     }
 }
