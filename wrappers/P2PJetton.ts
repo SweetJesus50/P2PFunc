@@ -5,7 +5,7 @@ export type P2PJettonConfig = {
     lessorAddress: Address,
     renterAddress: Address,
     content: Cell,
-    jettonWalletAddress: Address,
+    depositSize: bigint,
     cost: bigint,
     arbitratorFeePercent: bigint,
     rentTime: number
@@ -18,7 +18,10 @@ export function p2PJettonConfigToCell(config: P2PJettonConfig): Cell {
             .storeAddress(config.renterAddress)
             .storeRef(config.content)
             .storeRef(
-                beginCell().storeAddress(config.jettonWalletAddress).endCell()
+                beginCell()
+                    .storeUint(0, 2)
+                    .storeCoins(config.depositSize)
+                .endCell()
             )
             .storeRef(
                 beginCell()
@@ -43,11 +46,49 @@ export class P2PJetton implements Contract {
         return new P2PJetton(contractAddress(workchain, init), init);
     }
 
-    async sendDeploy(provider: ContractProvider, via: Sender, value: bigint) {
+    async sendDeploy(provider: ContractProvider, via: Sender, value: bigint, jettonAddress: Address) {
         await provider.internal(via, {
             value,
             sendMode: SendMode.PAY_GAS_SEPARATELY,
-            body: beginCell().endCell(),
+            body: beginCell().storeUint(0x95973dcc, 32).storeUint(0, 64).storeAddress(jettonAddress).endCell(),
         });
+    }
+
+    async sendSetJettonWallet(provider: ContractProvider, via: Sender, value: bigint, jettonWallet: Address) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().storeUint(0x70eecd6f, 32).storeUint(0, 64).storeAddress(jettonWallet).endCell()
+        })
+    }
+
+    async getStorage(provider: ContractProvider) {
+        let { stack } = await provider.get('get_storage', [])
+
+        return {
+            init: stack.readBoolean(),
+            arbitratorAddr: stack.readAddress(),
+            lessorAddr: stack.readAddress(),
+            renterAddr: stack.readAddress(),
+            content: stack.readCell(),
+            depositSize: stack.readBigNumber(),
+            cost: stack.readBigNumber(),
+            arbitratorFee: stack.readBigNumber(),
+            deposit: stack.readBigNumber(),
+            rentTime: stack.readNumber(),
+            delayTime: stack.readNumber(),
+            rentEndTime: stack.readNumber(),
+            request: stack.readBoolean(),
+            ended: stack.readBoolean(),
+            pauseTimestamp: stack.readNumber(),
+            pauseAttemtps: stack.readNumber()
+        }
+    }
+
+
+    async getJettonWalletAddress(provider: ContractProvider) {
+        let { stack } = await provider.get('get_jetton_wallet_address', [])
+
+        return stack.readAddress()
     }
 }

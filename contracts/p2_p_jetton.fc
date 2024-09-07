@@ -38,6 +38,7 @@ global slice storage::lessor_address;                   ;; MsgAddressInt - Lesso
 global slice storage::renter_address;                   ;; MsgAddressInt - Renter wallet address
 
 global slice storage::jetton_wallet_address;            ;; MsgAddressInt - Contract's jetton wallet address
+global int storage::deposit_size;
 
 global cell storage::content;                           ;; Cell - SBT metadata (`item_name` + `image_link`)
 
@@ -72,6 +73,7 @@ global int pause_attempts;                              ;; number of committed a
     slice ds1 = ds~load_ref().begin_parse();
 
     storage::jetton_wallet_address = ds1~load_msg_addr();
+    storage::deposit_size = ds1~load_coins();
 
     ds1.end_parse();
 
@@ -107,6 +109,7 @@ global int pause_attempts;                              ;; number of committed a
             .store_ref(                                     ;; 267 ;; refs = 0
                 begin_cell()
                     .store_slice(storage::jetton_wallet_address)
+                    .store_coins(storage::deposit_size)
                 .end_cell()
             )
             .store_ref(                                     ;; 124 + 124 + 32 + 124 + 32 + 32 + 1 + 1 + 1 + 8 = 511b ;; refs = 0
@@ -146,270 +149,290 @@ global int pause_attempts;                              ;; number of committed a
     load_data();
 
     int op = in_msg_body~load_uint(32);
-    int query_id = slice_bits(in_msg_body) >= 64 ? in_msg_body~load_uint(64) : 0;
+    int query_id = in_msg_body~load_uint(64);
 
-    ;; try {
-    if(op == op::transfer_notification) {
-        int jetton_amount = in_msg_body~load_coins();
-        slice from_address = in_msg_body~load_msg_addr();
-        slice payload = in_msg_body~load_int(1) ? in_msg_body~load_ref().begin_parse() : in_msg_body;
-        int inner_op = payload~load_uint(32);
+    if(op == op::deploy) {
+        throw_unless(err::already_deployed, storage::jetton_wallet_address.preload_uint(2) == 0);
 
-        try {
-            if(inner_op = op::comment_message) {
-                throw_unless(err::wrong_jetton, equal_slices(sender_address, storage::jetton_wallet_address));
+        storage::jetton_wallet_address = in_msg_body~load_msg_addr();
 
-                int comment = string_hash(payload);
-                
-                if(comment == "Deposit"H) {
-                    throw_unless(err::out_of_gas, msg_value >= gas::incoming_forward);
-                    throw_unless(err::wrong_deposit, jetton_amount == deposit_jetton_size);
-                    throw_unless(err::unauthorized_access, equal_slices(from_address, storage::renter_address));
-                    throw_if(err::already_inited, init?);
-
-                    storage::deposit = msg_value - gas::transaction;
-
-                    rent_end_time = now() + storage::rent_time;
-                    storage::delay_time = 0; 
-
-                    send_message_with_comment(flags::unbounceable, from_address, gas::info_value, "Deposit successful", mode::pay_fees_separately);
-
-                    init? = true;
-                    request? = false;
-                    is_ended? = false;
-                    is_paused? = false;
-
-                    storage::pause_timestamp = 0;
-                    pause_attempts = 0;
-
-                    save_data();
-
-                    return();
-                }
-                
-                throw_unless(err::not_inited, init?);
-                throw_if(err::request_sent, request?);
-                throw_if(err::finished, is_ended?);
-
-                if(comment == "Payment"H) {
-                    throw_unless(err::out_of_gas, msg_value >= gas::transaction * 2);
-                    throw_unless(err::not_enough_money, jetton_amount == storage::cost);
-                    throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::renter_address));
-                    throw_if(err::paused, is_paused?);
-                    throw_unless(err::not_finished, now() >= rent_end_time);
-                    throw_unless(err::request_not_sent, request?);
-
-                    int now = now();
-                    int arbitrator_fee = muldiv(storage::cost, storage::arbitrator_fee_percent, percent_divisor);
-                    int value_to_send = storage::cost - arbitrator_fee;
-
-                    if(now > storage::delay_time) {
-                        ;; w/penalty
-                        send_jettons(query_id, arbitrator_fee, storage::arbitrator_address, storage::arbitrator_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Payment was delayed.").end_cell());
-                        send_jettons(query_id, value_to_send + storage::deposit, storage::lessor_address, storage::lessor_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Payment was delayed.").end_cell());
-                        send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Payment was delayed. You are fined.", mode::pay_fees_separately);
-                    }
-                    else {
-                        ;; w/o penalty
-                        send_jettons(query_id, arbitrator_fee, storage::arbitrator_address, storage::arbitrator_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Arbitrator fee").end_cell());
-                        send_jettons(query_id, value_to_send, storage::lessor_address, storage::lessor_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Money for rent + deposit as fine").end_cell());
-                        send_jettons(query_id, storage::deposit, storage::renter_address, storage::renter_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Deposit return").end_cell());
-                    }
-
-                    is_ended? = true;
-                    save_data();
-
-                    return();
-                }
-
-                throw(op::unknown_comment_action);
-            } 
-        }
-        catch (_, n) {
-            send_jettons(query_id, jetton_amount, from_address, from_address, sender_address, 0, mode::carry_remaining_gas, 1, begin_cell().store_uint(0, 32).store_slice("Error. Code ").store_number10(n).end_cell());  
-            return ();
-        }  
-        return();
-    }
-
-    if(op == op::comment_message) {
-        int comment = string_hash(in_msg_body);
-
-        throw_if(err::finished, is_ended?);
-        if(comment == "Finish"H) { ;; before sending it lessor must check that everything is ok
-            throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::lessor_address));
-            throw_unless(err::out_of_gas, msg_value >= gas::transaction);
-            throw_unless(err::not_finished, now() >= rent_end_time);
-            throw_if(err::request_sent, request?);
-            throw_if(err::paused, is_paused?);
-            
-            storage::delay_time = rent_end_time + one_and_half_hour;
-            
-            ;; send payment request
-            send_cell_message(storage::renter_address, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Send ").store_str_float(storage::cost, nano).store_slice(" 💎 with 'Payment' comment ").end_cell(), mode::pay_fees_separately);
-
-            request? = true;
-
-            save_data();
-
-            return();
-            }
-
-        throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));    
-        if(comment == "Abort"H) {
-            throw_unless(err::renter_has_time, now() >= storage::delay_time);
-            throw_unless(err::request_not_sent, request?); ;; if request sent, but renter did not send the payment
-            throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
-
-            send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Renter did not send payment. Rent aborted.", mode::pay_fees_separately);
-            send_jettons(query_id, storage::deposit, storage::lessor_address, storage::lessor_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Renter did not send payment. Rent aborted.").end_cell());
-            send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Renter did not send payment. Rent aborted.", mode::carry_remaining_balance);
-
-            is_ended? = true;
-            save_data();
-
-            return();
-            }
-
-        return();
-    }
-
-    ;; arbitrator methods
-    throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
-
-    if(op == op::cancel_rent) { 
-        throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
-        throw_unless(err::not_inited, init?);
-        throw_if(err::finished, is_ended?);
-        throw_if(err::request_sent, request?); ;; consider finished rent
-
-        int arb_part = muldiv(storage::deposit, storage::arbitrator_fee_percent, percent_divisor);
-
-        if(is_paused?) { ;; when dispute rent should be paused first
-            ;; e.g. dispute led to rent cancellation 
-            if(query_id == 1) { ;; the dispute was resolved in favor of the lessor
-                send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
-                send_jettons(query_id, arb_part, storage::arbitrator_address, storage::arbitrator_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Rent is cancelled").end_cell());
-                send_jettons(query_id, storage::deposit - arb_part, storage::lessor_address, storage::lessor_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Rent is cancelled").end_cell());
-
-                is_paused? = false; ;; rent canceled, no pause
-                is_ended? = true;
-                
-                save_data();
-
-                return();
-            }
-            if(query_id == 2) { ;; the dispute was resolved in favor of the renter
-                send_jettons(query_id, storage::deposit - arb_part, storage::renter_address, storage::renter_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Rent is cancelled").end_cell());
-                send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
-                send_jettons(query_id, arb_part, storage::arbitrator_address, storage::arbitrator_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Rent is cancelled").end_cell());
-
-                is_paused? = false; ;; rent canceled, no pause
-                is_ended? = true;
-
-                save_data();
-
-                return();
-            }
-            throw(err::invalid_query_id);
-        }
-        else { ;; just cancel (if no query_id || query_id != 1 || query_id != 2)
-            send_jettons(query_id, storage::deposit, storage::renter_address, storage::renter_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Rent is cancelled").end_cell());
-            send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
-            send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Rent is canceled", mode::carry_remaining_balance);
-
-            is_ended? = true;
-            save_data();
-
-            return();
-        }
-    }
-
-    if(op == op::pause_rent) {
-        throw_unless(err::out_of_gas, msg_value >= gas::transaction);
-        throw_if(err::request_sent, request?);
-        throw_if(err::paused, is_paused?);
-
-        if(pause_attempts < const::max_attempts) {
-            if(storage::pause_timestamp == 0) {
-                storage::pause_timestamp = now();
-            } else {
-                int now = now(); 
-                storage::pause_timestamp = (now - storage::pause_timestamp) + now; 
-            }
-
-            is_paused? = true;
-
-            send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
-            send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
-            send_message_with_comment(flags::unbounceable, storage::arbitrator_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
-
-            pause_attempts += 1;
-            save_data();
-
-            return();
-        } 
-        else { throw(err::max_attempts_reached); }
-    }
-
-    if(op == op::unpause_rent) {
-        throw_unless(err::out_of_gas, msg_value >= gas::transaction);
-        throw_if(err::request_sent, request?);
-        throw_unless(err::paused, is_paused?);
-
-        ;; just pause for empty query_id or if query_id != 1 || query_id != 2
-
-        if(query_id == 1) { ;; if the dispute was resolved in favor of the lessor - reduce rent_end_time as penalty
-            rent_end_time = rent_end_time - (now() - storage::pause_timestamp);
-        }
-        if(query_id == 2) { ;; if the dispute was resolved in favor of the renter - increase rent_end_time as penalty
-            rent_end_time = rent_end_time + (now() - storage::pause_timestamp);
-        }
-
+        storage::deposit = 0;
+        storage::delay_time = 0;
+        rent_end_time = 0;
+        request? = false;
+        is_ended? = false; 
         is_paused? = false;
-
-        send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
-        send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
-        send_message_with_comment(flags::unbounceable, storage::arbitrator_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
+        storage::pause_timestamp = 0;
+        pause_attempts = 0;
 
         save_data();
 
         return();
     }
 
-    if(op == op::change_jetton_wallet) {
-        throw_if(err::already_inited, init?);
+    throw_if(err::not_deployed, equal_slices(storage::jetton_wallet_address, null_addr()));
 
-        storage::jetton_wallet_address = in_msg_body~load_msg_addr();
+    ;; try {
+        if(op == op::transfer_notification) {
+            int jetton_amount = in_msg_body~load_coins();
+            slice from_address = in_msg_body~load_msg_addr();
 
-        return();
-    }
+            try {
+                throw_unless(err::wrong_jetton, equal_slices(sender_address, storage::jetton_wallet_address)); ;; check if `tranfer_notification` is fake
+                
+                slice payload = in_msg_body~load_int(1) ? in_msg_body~load_ref().begin_parse() : in_msg_body;
+                int inner_op = payload~load_uint(32);
+            
+                if(inner_op == op::comment_message) {
+                    int comment = string_hash(payload);
+                
+                    if(comment == "Deposit"H) {
+                        throw_unless(err::out_of_gas, msg_value >= gas::incoming_forward);
+                        throw_unless(err::wrong_deposit, jetton_amount == storage::deposit_size);
+                        throw_unless(err::unauthorized_access, equal_slices(from_address, storage::renter_address));
+                        throw_unless(err::already_inited, storage::deposit == 0);
 
-    if(op == op::withdraw_ton) {
-        throw_unless(err::out_of_gas, msg_value >= gas::transaction);
-        throw_unless(err::not_finished, is_ended?);
+                        storage::deposit = jetton_amount;
 
-        raw_reserve(gas::min_for_storage, 0);
+                        rent_end_time = now() + storage::rent_time;
+                        storage::delay_time = 0; 
 
-        send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Tons successfully withdrawn!", mode::carry_remaining_balance + mode::ignore_errors);
+                        send_message_with_comment(flags::unbounceable, from_address, gas::info_value, "Deposit successful", mode::pay_fees_separately);
 
-        return();            
-    }
+                        init? = true;
 
-    if(op == op::withdraw_jetton) {
-        throw_unless(err::out_of_gas, msg_value >= gas::transaction);
-        throw_unless(err::not_finished, is_ended?);
+                        save_data();
 
-        slice jetton_to_withdraw = in_msg_body~load_msg_addr();
-        int jetton_amount = in_msg_body~load_coins();
-        slice recipient = in_msg_body~load_msg_addr();
+                        return();
+                    }
+                    
+                    throw_unless(err::not_inited, storage::deposit == 0);
+                    throw_unless(err::request_not_sent, request?);
+                    throw_if(err::finished, is_ended?);
 
-        send_jettons(query_id, jetton_amount, recipient, recipient, jetton_to_withdraw, 0, mode::carry_remaining_gas,
-                     msg_value - gas::jetton_transfer, begin_cell().store_slice(in_msg_body).end_cell());
-        return ();
-    }
+                    if(comment == "Payment"H) {
+                        throw_unless(err::out_of_gas, msg_value >= gas::transaction * 2);
+                        throw_unless(err::not_enough_money, jetton_amount == storage::cost);
+                        throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::renter_address));
+                        throw_if(err::paused, is_paused?);
+                        throw_unless(err::not_finished, now() >= rent_end_time);
 
-    throw(op::unknown);
+                        int now = now();
+                        int arbitrator_fee = muldiv(storage::cost, storage::arbitrator_fee_percent, percent_divisor);
+                        int value_to_send = storage::cost - arbitrator_fee;
+
+                        if(now > storage::delay_time) {
+                            ;; w/penalty
+                            send_jettons(query_id, arbitrator_fee, storage::arbitrator_address, storage::arbitrator_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Payment was delayed.").end_cell());
+                            send_jettons(query_id, value_to_send + storage::deposit, storage::lessor_address, storage::lessor_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Payment was delayed.").end_cell());
+                            send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Payment was delayed. You are fined.", mode::pay_fees_separately);
+                        }
+                        else {
+                            ;; w/o penalty
+                            send_jettons(query_id, arbitrator_fee, storage::arbitrator_address, storage::arbitrator_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Arbitrator fee").end_cell());
+                            send_jettons(query_id, value_to_send, storage::lessor_address, storage::lessor_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Money for rent + deposit as fine").end_cell());
+                            send_jettons(query_id, storage::deposit, storage::renter_address, storage::renter_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Deposit return").end_cell());
+                        }
+
+                        is_ended? = true;
+                        save_data();
+
+                        return();
+                    }
+
+                    throw(op::unknown_comment_action);
+                } 
+            }
+            catch (_, n) {
+                send_jettons(query_id, jetton_amount, from_address, from_address, sender_address, 0, mode::carry_remaining_gas, 1, begin_cell().store_uint(0, 32).store_slice("Error. Code ").store_number10(n).end_cell());  
+                return ();
+            }  
+            return();
+        }
+
+        if(op == op::comment_message) {
+            int comment = string_hash(in_msg_body);
+
+            throw_if(err::finished, is_ended?);
+            if(comment == "Finish"H) { ;; before sending it lessor must check that everything is ok
+                throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::lessor_address));
+                throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+                throw_unless(err::not_finished, now() >= rent_end_time);
+                throw_if(err::request_sent, request?);
+                throw_if(err::paused, is_paused?);
+                
+                storage::delay_time = rent_end_time + one_and_half_hour;
+                
+                ;; send payment request
+                send_cell_message(storage::renter_address, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Send ").store_str_float(storage::cost, nano).store_slice(" 💎 with 'Payment' comment ").end_cell(), mode::pay_fees_separately);
+
+                request? = true;
+
+                save_data();
+
+                return();
+            }
+
+            throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));    
+            if(comment == "Abort"H) {
+                throw_unless(err::renter_has_time, now() >= storage::delay_time);
+                throw_unless(err::request_not_sent, request?); ;; if request sent, but renter did not send the payment
+                throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
+
+                send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Renter did not send payment. Rent aborted.", mode::pay_fees_separately);
+                send_jettons(query_id, storage::deposit, storage::lessor_address, storage::lessor_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Renter did not send payment. Rent aborted.").end_cell());
+                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Renter did not send payment. Rent aborted.", mode::carry_remaining_balance);
+
+                is_ended? = true;
+                save_data();
+
+                return();
+            }
+
+            return();
+        }
+
+        ;; arbitrator methods
+        throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::arbitrator_address));
+
+        if(op == op::cancel_rent) { 
+            throw_unless(err::out_of_gas, msg_value >= gas::cancellation);
+            throw_unless(err::not_inited, init?);
+            throw_if(err::finished, is_ended?);
+            throw_if(err::request_sent, request?); ;; consider finished rent
+
+            int arb_part = muldiv(storage::deposit, storage::arbitrator_fee_percent, percent_divisor);
+
+            if(is_paused?) { ;; when dispute rent should be paused first
+                ;; e.g. dispute led to rent cancellation 
+                if(query_id == 1) { ;; the dispute was resolved in favor of the lessor
+                    throw_unless(err::finished, now() < rent_end_time);
+                    send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
+                    send_jettons(query_id, arb_part, storage::arbitrator_address, storage::arbitrator_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Rent is cancelled").end_cell());
+                    send_jettons(query_id, storage::deposit - arb_part, storage::lessor_address, storage::lessor_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Rent is cancelled").end_cell());
+
+                    is_paused? = false; ;; rent canceled, no pause
+                    is_ended? = true;
+
+                    save_data();
+
+                    return();
+                }
+                if(query_id == 2) { ;; the dispute was resolved in favor of the renter
+                    throw_unless(err::finished, now() < rent_end_time);
+                    send_jettons(query_id, storage::deposit - arb_part, storage::renter_address, storage::renter_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Rent is cancelled").end_cell());
+                    send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
+                    send_jettons(query_id, arb_part, storage::arbitrator_address, storage::arbitrator_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Rent is cancelled").end_cell());
+
+                    is_paused? = false; ;; rent canceled, no pause
+                    is_ended? = true;
+
+                    save_data();
+
+                    return();
+                }
+                throw(err::invalid_query_id);
+            }
+            else { ;; just cancel (if no query_id || query_id != 1 || query_id != 2)
+                send_jettons(query_id, storage::deposit, storage::renter_address, storage::renter_address, storage::jetton_wallet_address, gas::jetton_transfer, mode::pay_fees_separately, gas::info_value, begin_cell().store_uint(0, 32).store_slice("Rent is cancelled").end_cell());
+                send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Rent is canceled", mode::carry_remaining_balance);
+
+                is_ended? = true;
+                save_data();
+
+                return();
+            }
+        }
+
+        if(op == op::pause_rent) {
+            throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+            throw_if(err::request_sent, request?);
+            throw_unless(err::finished, now() < rent_end_time);
+            throw_if(err::paused, is_paused?);
+
+            if(pause_attempts < const::max_attempts) {
+                if(storage::pause_timestamp == 0) {
+                    storage::pause_timestamp = now();
+                } else {
+                    int now = now(); 
+                    storage::pause_timestamp = (now - storage::pause_timestamp) + now; 
+                }
+
+                is_paused? = true;
+
+                send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
+                send_message_with_comment(flags::unbounceable, storage::arbitrator_address, gas::info_value, "Rent paused", mode::pay_fees_separately);
+
+                pause_attempts += 1;
+                save_data();
+
+                return();
+            } 
+            else { throw(err::max_attempts_reached); }
+        }
+
+        if(op == op::unpause_rent) {
+            throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+            throw_if(err::request_sent, request?);
+            throw_unless(err::finished, now() < rent_end_time);
+            throw_unless(err::paused, is_paused?);
+
+            ;; just pause for empty query_id or if query_id != 1 || query_id != 2
+
+            if(query_id == 1) { ;; if the dispute was resolved in favor of the lessor - reduce rent_end_time as penalty
+                rent_end_time = rent_end_time - (now() - storage::pause_timestamp);
+            }
+            if(query_id == 2) { ;; if the dispute was resolved in favor of the renter - increase rent_end_time as penalty
+                rent_end_time = rent_end_time + (now() - storage::pause_timestamp);
+            }
+
+            is_paused? = false;
+
+            send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
+            send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
+            send_message_with_comment(flags::unbounceable, storage::arbitrator_address, gas::info_value, "Rent unpaused", mode::pay_fees_separately);
+
+            save_data();
+
+            return();
+        }
+
+        if(op == op::change_jetton_wallet) {
+            throw_if(err::already_inited, init?);
+
+            storage::jetton_wallet_address = in_msg_body~load_msg_addr();
+
+            save_data();
+            return();
+        }
+
+        if(op == op::withdraw_ton) {
+            throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+            throw_unless(err::not_finished, is_ended?);
+
+            raw_reserve(gas::min_for_storage, 0);
+
+            send_message_with_comment(flags::unbounceable, storage::arbitrator_address, 0, "Tons successfully withdrawn!", mode::carry_remaining_balance + mode::ignore_errors);
+
+            return();            
+        }
+
+        if(op == op::withdraw_jetton) {
+            throw_unless(err::out_of_gas, msg_value >= gas::transaction);
+            throw_unless(err::not_finished, is_ended?);
+
+            slice jetton_to_withdraw = in_msg_body~load_msg_addr();
+            int jetton_amount = in_msg_body~load_coins();
+            slice recipient = in_msg_body~load_msg_addr();
+
+            send_jettons(query_id, jetton_amount, recipient, recipient, jetton_to_withdraw, 0, mode::carry_remaining_gas,
+                        msg_value - gas::jetton_transfer, begin_cell().store_slice(in_msg_body).end_cell());
+            return ();
+        }
+
+        throw(op::unknown);
 
     ;; } catch (_, n) {
     ;;     send_cell_message(sender_address, 0, begin_cell().store_uint(0, 32).store_slice("Error. Code ").store_number10(n).end_cell(), mode::carry_remaining_gas);
@@ -443,6 +466,10 @@ global int pause_attempts;                              ;; number of committed a
             sbt_name.store_uint(0, 8).store_slice(item_name_slice).store_slice(" rental");
         } else {
             sbt_name.store_uint(0, 8).store_slice("Rent");
+        }
+
+        if(is_paused?) {
+            sbt_name.store_slice(" (paused)");
         }
 
         if (is_ended?) {
@@ -526,12 +553,13 @@ int get_current_pause_time() method_id {
 
 slice get_jetton_wallet_address() method_id {
     load_data();
-
-    return storage::jetton_wallet_address;
+    if(storage::jetton_wallet_address.preload_uint(2) != 0) {
+        return storage::jetton_wallet_address;
+    } else { return null_addr(); }    
 }
 
-;; 1      2      3      4     5    6    7    8    9   10   11   12   13
-(int, slice, slice, slice, cell, int, int, int, int, int, int, int, int) get_storage() method_id {
+;; 1      2      3      4     5    6    7    8    9   10   11   12   13   14   15   16
+(int, slice, slice, slice, cell, int, int, int, int, int, int, int, int, int, int, int) get_storage() method_id {
     load_data();
     if(~ init?) {
         return(
@@ -540,10 +568,11 @@ slice get_jetton_wallet_address() method_id {
             storage::lessor_address,            ;; 3
             storage::renter_address,            ;; 4
             storage::content,                   ;; 5
-            storage::cost,                      ;; 6
-            storage::arbitrator_fee_percent,    ;; 7
-            0, 0, 0, 0, 0, 0
-;;          8  9  10 11 12 13
+            storage::deposit_size,              ;; 6
+            storage::cost,                      ;; 7
+            storage::arbitrator_fee_percent,    ;; 8
+            0, 0, 0, 0, 0, 0, 0, 0
+;;          9  10  11 12 13 14 15 16 
         );
     } else {
         return(
@@ -552,14 +581,17 @@ slice get_jetton_wallet_address() method_id {
             storage::lessor_address,            ;; 3
             storage::renter_address,            ;; 4
             storage::content,                   ;; 5
-            storage::cost,                      ;; 6
-            storage::arbitrator_fee_percent,    ;; 7
-            storage::deposit,                   ;; 8
-            storage::rent_time,                 ;; 9
-            storage::delay_time,                ;; 10
-            rent_end_time,                      ;; 11
-            request?,                           ;; 12
-            is_ended?                           ;; 13
+            storage::deposit_size,              ;; 6
+            storage::cost,                      ;; 7
+            storage::arbitrator_fee_percent,    ;; 8
+            storage::deposit,                   ;; 9
+            storage::rent_time,                 ;; 10
+            storage::delay_time,                ;; 11
+            rent_end_time,                      ;; 12
+            request?,                           ;; 13
+            is_ended?,                          ;; 14
+            storage::pause_timestamp,           ;; 15
+            pause_attempts                      ;; 16
         );
     }
 }

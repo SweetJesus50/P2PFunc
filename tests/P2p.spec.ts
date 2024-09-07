@@ -32,6 +32,7 @@ describe('P2p', () => {
             lessorAddress: lessor.address,
             renterAddress: renter.address,
             content: buildOnchainMetadata({item_name: "Snowboard", image: "image_link"}),
+            depositSize: toNano("0.5"),
             cost: toNano(1),                      // 1 TON
             arbitratorFeePercent: toNano("0.03"), // 3%
             rentTime: 3600                        // 1 hour
@@ -237,7 +238,7 @@ describe('P2p', () => {
 
         expect(await p2p.getIsPaused()).toBeTruthy()
 
-        blockchain.now!! += 7200 // pause was for 2 hours
+        blockchain.now!! += 1800 // pause was for 30 minutes
 
         // dispute resolved -> continue rent
         // for example dispute resolved in favor of the lessor
@@ -246,7 +247,7 @@ describe('P2p', () => {
 
         transactionRes = await p2p.sendUnpauseRent(arbitrator.getSender(), toNano("0.05"), 1) // queryId = 1 (lessor)
 
-        expect((await p2p.getStorage()).rentEndTime).toEqual(rentEndTimeBefore - 7200) // minus `pause_time` from rentTime, because lessor won the dispute
+        expect((await p2p.getStorage()).rentEndTime).toEqual(rentEndTimeBefore - 1800) // minus `pause_time` from rentTime, because lessor won the dispute
     })
 
     it('should emulate dispute between lessor and renter and cancel rent', async () => {
@@ -257,7 +258,7 @@ describe('P2p', () => {
 
         expect(await p2p.getIsPaused()).toBeTruthy()
 
-        blockchain.now!! += 10800 // pause was for 3 hours
+        blockchain.now!! += 1800 // pause was for 30 minutes
 
         // dispute resolved -> cancel rent
         // dispute resolved in favor of the renter

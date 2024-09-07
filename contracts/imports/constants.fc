@@ -61,11 +61,13 @@ const int err::paused = 68;
 const int err::max_attempts_reached = 69;
 const int err::invalid_query_id = 70;
 const int err::wrong_jetton = 71;
+const int err::already_deployed = 72;
+const int err::not_deployed = 777;
 const int err::out_of_gas = 13;
 
 const int exc::wrong_chain = 333;
 
 const int const::moderators_max = 10;
-const int const::max_attempts = 3;
+const int const::max_attempts = 1;
 
 const slice zero_address = "0QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACkT"a;

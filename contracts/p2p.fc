@@ -18,7 +18,7 @@
 ;;                                       5. `is_ended?` flag is set to `true` and rent considered completed.
 ;;
 ;; Possible problems during rent:
-;;                                       1. Something went wrong between lessor and renter (e.g. there is some dispute or lessor somehow forgot to send payment request) both can appeal to an arbitrator to resolve the problem. Arbitrator should pause (arbitrator got only 3 attempts to pause) the rent by sending message with `Pause` comment to this smart contract to have some time to resolve the dispute. If the dispute was not resolved, arbitrator reserves the right to cancel ((!!) ONLY IF payment request was not sent and the rent is not already finished) rent by sending message with `Cancel` comment to this contract. When contract receives this message from arbitrator it sends deposit back to renter. Rent considers finished. 
+;;                                       1. Something went wrong between lessor and renter (e.g. there is some dispute or lessor somehow forgot to send payment request) both can appeal to an arbitrator to resolve the problem. Arbitrator should pause (arbitrator got only 1 attempt to pause and PAUSE and UNPAUSE time must be < `rent_end_time`) the rent by sending message with `Pause` comment to this smart contract to have some time to resolve the dispute. If the dispute was not resolved, arbitrator reserves the right to cancel ((!!) ONLY IF payment request was not sent and the rent is not already finished) rent by sending message with `Cancel` comment to this contract. When contract receives this message from arbitrator it sends deposit back to renter. Rent considers finished. 
 ;;                                       2. Renter did not send the payment (!) after payment request. In this case arbitrator reserves the right to abort the rent by sending message with `Abort` comment to this contract and all deposit goes to lessor as compensation. Rent considers finished.
 
 #pragma version >=0.4.0;
@@ -38,6 +38,7 @@ global slice storage::lessor_address;                   ;; MsgAddressInt - Lesso
 global slice storage::renter_address;                   ;; MsgAddressInt - Renter wallet address
 
 global cell storage::content;                           ;; Cell - SBT metadata (`item_name` + `image_link`)
+global int storage::deposit_size;
 
 global int storage::cost;                               ;; Coins - Cost of the Rent
 global int storage::arbitrator_fee_percent;             ;; Coins - Arbitrator fee percent (0.1 = 10% | 1 = 100%)
@@ -66,6 +67,7 @@ global int pause_attempts;                              ;; number of committed a
     storage::renter_address = ds~load_msg_addr();
 
     storage::content = ds~load_ref();
+    storage::deposit_size = ds~load_coins();
 
     slice ds2 = ds~load_ref().begin_parse();
 
@@ -97,6 +99,7 @@ global int pause_attempts;                              ;; number of committed a
             .store_slice(storage::lessor_address)
             .store_slice(storage::renter_address)
             .store_ref(storage::content)
+            .store_coins(storage::deposit_size)
             .store_ref(                                     ;; 124 + 124 + 32 + 124 + 32 + 32 + 1 + 1 + 1 + 8 = 511b ;; refs = 0
                 begin_cell()
                     .store_coins(storage::cost)
@@ -143,7 +146,7 @@ global int pause_attempts;                              ;; number of committed a
 
             int comment = string_hash(in_msg_body);
             if(comment == "Deposit"H) {
-                throw_unless(err::wrong_deposit, msg_value == deposit_size + gas::transaction);
+                throw_unless(err::wrong_deposit, msg_value == storage::deposit_size + gas::transaction);
                 throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::renter_address));
                 throw_if(err::already_inited, init?);
 
@@ -250,6 +253,7 @@ global int pause_attempts;                              ;; number of committed a
             if(is_paused?) { ;; when dispute rent should be paused first
                 ;; e.g. dispute led to rent cancellation 
                 if(query_id == 1) { ;; the dispute was resolved in favor of the lessor
+                    throw_unless(err::finished, now() < rent_end_time);
                     send_message_with_comment(flags::unbounceable, storage::renter_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
                     send_message_with_comment(flags::unbounceable, storage::lessor_address, storage::deposit - arb_part, "Rent is canceled", mode::pay_fees_separately);
                     send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arb_part, "Rent is canceled", mode::pay_fees_separately);
@@ -262,6 +266,7 @@ global int pause_attempts;                              ;; number of committed a
                     return();
                 }
                 if(query_id == 2) { ;; the dispute was resolved in favor of the renter
+                    throw_unless(err::finished, now() < rent_end_time);
                     send_message_with_comment(flags::unbounceable, storage::renter_address, storage::deposit - arb_part, "Rent is canceled", mode::pay_fees_separately);
                     send_message_with_comment(flags::unbounceable, storage::lessor_address, gas::info_value, "Rent is canceled", mode::pay_fees_separately);
                     send_message_with_comment(flags::unbounceable, storage::arbitrator_address, arb_part, "Rent is canceled", mode::pay_fees_separately);
@@ -287,9 +292,10 @@ global int pause_attempts;                              ;; number of committed a
             }
         }
 
-        if(op == op::pause_rent) {
+        if(op == op::pause_rent) { ;; TODO (make impossible to pause if pause > rent_time) maybe get pause time from message? or if end time is over trigger an error?
             throw_unless(err::out_of_gas, msg_value >= gas::transaction);
             throw_if(err::request_sent, request?);
+            throw_unless(err::finished, now() < rent_end_time);
             throw_if(err::paused, is_paused?);
 
             if(pause_attempts < const::max_attempts) {
@@ -317,6 +323,7 @@ global int pause_attempts;                              ;; number of committed a
         if(op == op::unpause_rent) {
             throw_unless(err::out_of_gas, msg_value >= gas::transaction);
             throw_if(err::request_sent, request?);
+            throw_unless(err::finished, now() < rent_end_time);
             throw_unless(err::paused, is_paused?);
 
             ;; just pause for empty query_id or if query_id != 1 || query_id != 2
@@ -465,8 +472,8 @@ int get_current_pause_time() method_id {
     }
 }
 
-;; 1      2      3      4     5    6    7    8    9   10   11   12   13   14   15
-(int, slice, slice, slice, cell, int, int, int, int, int, int, int, int, int, int) get_storage() method_id {
+;; 1      2      3      4     5    6    7    8    9   10   11   12   13   14   15   16
+(int, slice, slice, slice, cell, int, int, int, int, int, int, int, int, int, int, int) get_storage() method_id {
     load_data();
     if(~ init?) {
         return(
@@ -475,10 +482,11 @@ int get_current_pause_time() method_id {
             storage::lessor_address,            ;; 3
             storage::renter_address,            ;; 4
             storage::content,                   ;; 5
-            storage::cost,                      ;; 6
-            storage::arbitrator_fee_percent,    ;; 7
+            storage::deposit_size,              ;; 6
+            storage::cost,                      ;; 7
+            storage::arbitrator_fee_percent,    ;; 8
             0, 0, 0, 0, 0, 0, 0, 0
-;;          8  9  10 11 12 13 14 15 
+;;          9  10  11 12 13 14 15 16 
         );
     } else {
         return(
@@ -487,16 +495,17 @@ int get_current_pause_time() method_id {
             storage::lessor_address,            ;; 3
             storage::renter_address,            ;; 4
             storage::content,                   ;; 5
-            storage::cost,                      ;; 6
-            storage::arbitrator_fee_percent,    ;; 7
-            storage::deposit,                   ;; 8
-            storage::rent_time,                 ;; 9
-            storage::delay_time,                ;; 10
-            rent_end_time,                      ;; 11
-            request?,                           ;; 12
-            is_ended?,                          ;; 13
-            storage::pause_timestamp,           ;; 14
-            pause_attempts                      ;; 15
+            storage::deposit_size,              ;; 6
+            storage::cost,                      ;; 7
+            storage::arbitrator_fee_percent,    ;; 8
+            storage::deposit,                   ;; 9
+            storage::rent_time,                 ;; 10
+            storage::delay_time,                ;; 11
+            rent_end_time,                      ;; 12
+            request?,                           ;; 13
+            is_ended?,                          ;; 14
+            storage::pause_timestamp,           ;; 15
+            pause_attempts                      ;; 16
         );
     }
 }

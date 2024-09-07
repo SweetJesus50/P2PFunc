@@ -5,6 +5,7 @@ export type P2pConfig = {
     lessorAddress: Address,
     renterAddress: Address,
     content: Cell,
+    depositSize: bigint,
     cost: bigint,
     arbitratorFeePercent: bigint,
     rentTime: number
@@ -16,6 +17,7 @@ export function p2pConfigToCell(config: P2pConfig): Cell {
                 .storeAddress(config.lessorAddress)
                 .storeAddress(config.renterAddress)
                 .storeRef(config.content)
+                .storeCoins(config.depositSize)
                 .storeRef(
                     beginCell()
                         .storeCoins(config.cost)
@@ -112,6 +114,7 @@ export class P2p implements Contract {
             lessorAddr: stack.readAddress(),
             renterAddr: stack.readAddress(),
             content: stack.readCell(),
+            depositSize: stack.readBigNumber(),
             cost: stack.readBigNumber(),
             arbitratorFee: stack.readBigNumber(),
             deposit: stack.readBigNumber(),
