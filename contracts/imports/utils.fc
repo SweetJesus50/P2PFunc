@@ -114,9 +114,71 @@ builder store_number10(builder b, int x) asm """
   REPEAT:<{ 8 STU }>                                          // ..rrr.. b i
 """;
 
-cell calculate_p2p_item_state_init(int item_index, cell nft_item_code) {
-  cell data = begin_cell().store_uint(item_index, 64).store_slice(my_address()).end_cell();
-  return begin_cell().store_uint(0, 2).store_dict(nft_item_code).store_dict(data).store_uint(0, 1).end_cell();
+cell calculate_p2p_item_state_init(
+    int item_index, 
+    slice arbitrator_address, 
+    slice lessor_address, 
+    slice renter_address,
+    cell content,
+    int deposit_size,
+    int cost,
+    int arbitrator_percent,
+    int rent_time, 
+    cell nft_item_code) {
+    cell data = begin_cell()
+                .store_uint(item_index, 64)
+                .store_slice(arbitrator_address)
+                .store_slice(lessor_address)
+                .store_slice(renter_address)
+                .store_ref(content)
+                .store_coins(deposit_size)
+                .store_ref(
+                    begin_cell()
+                        .store_slice(my_address())
+                        .store_coins(cost)
+                        .store_coins(arbitrator_percent)
+                        .store_uint(rent_time, 32)
+                    .end_cell()
+                )
+            .end_cell();
+
+  return begin_cell().store_uint(6, 5).store_ref(nft_item_code).store_ref(data).end_cell();
+}
+
+cell calculate_p2p_jetton_item_state_init(
+    int item_index, 
+    slice arbitrator_address, 
+    slice lessor_address, 
+    slice renter_address,
+    cell content,
+    int deposit_size,
+    int cost,
+    int arbitrator_percent,
+    int rent_time, 
+    cell nft_item_code) {
+    cell data = begin_cell()
+                .store_uint(item_index, 64)
+                .store_slice(arbitrator_address)
+                .store_slice(lessor_address)
+                .store_slice(renter_address)
+                .store_ref(content)
+                .store_ref(
+                    begin_cell()
+                        .store_slice(my_address())
+                        .store_uint(0, 2)
+                        .store_coins(deposit_size)
+                    .end_cell()
+                )
+                .store_ref(
+                    begin_cell()
+                        .store_coins(cost)
+                        .store_coins(arbitrator_percent)
+                        .store_uint(rent_time, 32)
+                    .end_cell()
+                )
+            .end_cell();
+
+  return begin_cell().store_uint(6, 5).store_ref(nft_item_code).store_ref(data).end_cell();
 }
 
 slice calculate_p2p_item_address(int wc, cell state_init) {
@@ -127,16 +189,56 @@ slice calculate_p2p_item_address(int wc, cell state_init) {
                      .begin_parse();
 }
 
-() deploy_p2p(int item_index, cell nft_item_code, int amount, cell nft_content) impure {
-  cell state_init = calculate_p2p_item_state_init(item_index, nft_item_code);
+() deploy_p2p(
+    int amount,
+    int item_index, 
+    slice arbitrator_address, 
+    slice lessor_address, 
+    slice renter_address,
+    cell content,
+    int deposit_size,
+    int cost,
+    int arbitrator_percent,
+    int rent_time, 
+    cell nft_item_code) impure {
+  cell state_init = calculate_p2p_item_state_init(item_index,arbitrator_address,lessor_address,renter_address,content,deposit_size,cost,arbitrator_percent,rent_time,nft_item_code);
   slice nft_address = calculate_p2p_item_address(WORKCHAIN, state_init);
   var msg = begin_cell()
             .store_uint(0x18, 6)
             .store_slice(nft_address)
             .store_coins(amount)
             .store_uint(4 + 2 + 1, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
+            .store_ref(state_init);
+  send_raw_message(msg.end_cell(), 1); ;; pay transfer fees separately, revert on errors
+}
+() deploy_p2p_jetton(
+    int amount,
+    int item_index,
+    slice jetton_master_address, 
+    slice arbitrator_address, 
+    slice lessor_address, 
+    slice renter_address,
+    cell content,
+    int deposit_size,
+    int cost,
+    int arbitrator_percent,
+    int rent_time, 
+    cell nft_item_code) impure {
+  cell state_init = calculate_p2p_jetton_item_state_init(item_index,arbitrator_address,lessor_address,renter_address,content,deposit_size,cost,arbitrator_percent,rent_time,nft_item_code);
+  slice nft_address = calculate_p2p_item_address(WORKCHAIN, state_init);
+
+  var master_msg = begin_cell()
+                    .store_uint(op::set_jetton_wallet, 32)
+                    .store_uint(now(), 64)
+                    .store_slice(jetton_master_address);
+
+  var msg = begin_cell()
+            .store_uint(0x18, 6)
+            .store_slice(nft_address)
+            .store_coins(amount)
+            .store_uint(4 + 2 + 1, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
             .store_ref(state_init)
-            .store_ref(nft_content);
+            .store_ref(master_msg.end_cell());
   send_raw_message(msg.end_cell(), 1); ;; pay transfer fees separately, revert on errors
 }
 

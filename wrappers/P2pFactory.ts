@@ -2,12 +2,19 @@ import { Address, beginCell, Cell, Contract, contractAddress, ContractProvider, 
 
 export type ArbitratorConfig = {
     ownerAddress: Address,
+    content: Cell,
+    p2pCode: Cell,
+    p2pJettonCode: Cell,
     moderators: Dictionary<Address, Boolean>
 };
 
 export function arbitratorConfigToCell(config: ArbitratorConfig): Cell {
     return beginCell()
                 .storeAddress(config.ownerAddress)
+                .storeUint(0, 64)
+                .storeRef(config.content)
+                .storeRef(config.p2pCode)
+                .storeRef(config.p2pJettonCode)
                 .storeDict(config.moderators, Dictionary.Keys.Address(), Dictionary.Values.Bool())
            .endCell();
 }

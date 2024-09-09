@@ -1,6 +1,6 @@
 import { Blockchain, printTransactionFees, SandboxContract, TreasuryContract } from '@ton/sandbox';
 import { Address, beginCell, Cell, toNano } from '@ton/core';
-import { P2PJetton } from '../wrappers/P2PJetton';
+import { P2PJetton } from '../wrappers/P2PJettonSingle';
 import '@ton/test-utils';
 import { compile } from '@ton/blueprint';
 import { buildOnchainMetadata } from '../wrappers/onChain';
@@ -14,7 +14,7 @@ describe('P2PJetton', () => {
     let jettonWalletCode: Cell;
 
     beforeAll(async () => {
-        code = await compile('P2PJetton');
+        code = await compile('P2PJettonSingle');
         jettonMasterCode = await compile('JettonMaster');
         jettonWalletCode = await compile('JettonWallet')
     });
@@ -153,6 +153,6 @@ describe('P2PJetton', () => {
 
         expect((await p2p.getStorage()).ended).toBeTruthy()
     })
-    
-    // OTHER TESTS ARE DONE IN P2P.FC BC THEY HAVE THE SAME LOGIC AS IN BASIC P2P (NO JETTON)
+
+    it('Other tests are done in p2p.fc because they have the same logic as in basic p2p (no jetton)', async () => {})
 });

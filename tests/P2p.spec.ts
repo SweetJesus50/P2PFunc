@@ -1,16 +1,16 @@
 import { Blockchain, printTransactionFees, SandboxContract, TreasuryContract } from '@ton/sandbox';
 import { beginCell, Cell, toNano } from '@ton/core';
-import { P2p } from '../wrappers/P2p';
+import { P2p } from '../wrappers/P2pSingle';
 import '@ton/test-utils';
 import { compile } from '@ton/blueprint';
 import { buildOnchainMetadata } from '../wrappers/onChain';
-import { Arbitrator } from '../wrappers/Arbitrator';
+import { Arbitrator } from '../wrappers/P2pFactory';
 
 describe('P2p', () => {
     let code: Cell;
 
     beforeAll(async () => {
-        code = await compile('P2p');
+        code = await compile('P2pSingle');
     });
 
     let blockchain: Blockchain;
@@ -260,8 +260,6 @@ describe('P2p', () => {
         // dispute resolved in favor of the renter
 
         transactionRes = await p2p.sendCancelRent(arbitrator.getSender(), toNano("0.05"), 2) // queryId = 2 (renter)
-
-        console.log(printTransactionFees(transactionRes.transactions))
 
         expect(transactionRes.transactions).toHaveTransaction({ // renter gets his deposit back (because renter won the dispute) - arbitrator fee
             from: p2p.address,

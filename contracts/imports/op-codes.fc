@@ -32,6 +32,11 @@ const int op::withdraw_jetton = 0x768a50b2;
 const int op::change_jetton_wallet = 0x70eecd6f;
 
 const int op::deploy = 0x95973dcc;
+const int op::deploy_p2p = 0xbabed24e;
+const int op::deploy_p2p_jetton = 0xd97cf5da;
+const int op::set_jetton_wallet = 0x2bee0192;
+
+const int op::declined = 0x6c9d91d2;
 
 
 

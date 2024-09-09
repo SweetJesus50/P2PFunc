@@ -1,5 +1,5 @@
 import { toNano } from '@ton/core';
-import { P2PJetton } from '../wrappers/P2PJetton';
+import { P2PJetton } from '../wrappers/P2PJettonSingle';
 import { compile, NetworkProvider } from '@ton/blueprint';
 
 export async function run(provider: NetworkProvider) {

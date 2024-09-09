@@ -1,22 +1,22 @@
 import { Address, beginCell, Cell, Contract, contractAddress, ContractProvider, Sender, SendMode } from '@ton/core';
 
-export type P2pConfig = {};
+export type P2PJettonConfig = {};
 
-export function p2pConfigToCell(config: P2pConfig): Cell {
+export function p2PJettonConfigToCell(config: P2PJettonConfig): Cell {
     return beginCell().endCell();
 }
 
-export class P2p implements Contract {
+export class P2PJetton implements Contract {
     constructor(readonly address: Address, readonly init?: { code: Cell; data: Cell }) {}
 
     static createFromAddress(address: Address) {
-        return new P2p(address);
+        return new P2PJetton(address);
     }
 
-    static createFromConfig(config: P2pConfig, code: Cell, workchain = 0) {
-        const data = p2pConfigToCell(config);
+    static createFromConfig(config: P2PJettonConfig, code: Cell, workchain = 0) {
+        const data = p2PJettonConfigToCell(config);
         const init = { code, data };
-        return new P2p(contractAddress(workchain, init), init);
+        return new P2PJetton(contractAddress(workchain, init), init);
     }
 
     async sendDeploy(provider: ContractProvider, via: Sender, value: bigint) {

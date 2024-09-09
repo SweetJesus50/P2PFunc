@@ -29,7 +29,7 @@
 #include "imports/utils.fc";
 
 global int init?;                                       ;; bool - == `true` when renter sent deposit else == `false`
-;; global int storage::index; ;; if sbt not single
+global int storage::index;
 global int request?;                                    ;; bool - request for payment sent by lessor to renter
 
 global slice storage::arbitrator_address;               ;; MsgAddressInt - Arbitrator wallet address
@@ -40,6 +40,7 @@ global slice storage::renter_address;                   ;; MsgAddressInt - Rente
 global cell storage::content;                           ;; Cell - SBT metadata (`item_name` + `image_link`)
 global int storage::deposit_size;                       ;; Coins - Deposit size
 
+global slice storage::factory_address;
 global int storage::cost;                               ;; Coins - Cost of the Rent
 global int storage::arbitrator_fee_percent;             ;; Coins - Arbitrator fee percent (0.1 = 10% | 1 = 100%)
 global int storage::deposit;                            ;; Coins - Deposit, that renter sends to initialize contract
@@ -62,6 +63,7 @@ global int pause_attempts;                              ;; number of committed a
     is_ended? = false;
     request? = false;
     is_paused? = false;
+    storage::index = ds~load_uint(64);
     storage::arbitrator_address = ds~load_msg_addr();
     storage::lessor_address = ds~load_msg_addr();
     storage::renter_address = ds~load_msg_addr();
@@ -73,6 +75,7 @@ global int pause_attempts;                              ;; number of committed a
 
     ds.end_parse();
 
+    storage::factory_address = ds~load_msg_addr();
     storage::cost = ds2~load_coins();
     storage::arbitrator_fee_percent = ds2~load_coins();
     storage::rent_time = ds2~load_uint(32);
@@ -94,14 +97,16 @@ global int pause_attempts;                              ;; number of committed a
 
 () save_data() impure inline {
     set_data(
-        begin_cell()                                        ;; 267 + 267 + 267 + 124 = 925b ;; refs = 2
+        begin_cell()                                        ;; 64 + 267 + 267 + 267 + 124 = 989b ;; refs = 2
+            .store_uint(storage::index, 64)
             .store_slice(storage::arbitrator_address)
             .store_slice(storage::lessor_address)
             .store_slice(storage::renter_address)
             .store_ref(storage::content)
             .store_coins(storage::deposit_size)
-            .store_ref(                                     ;; 124 + 124 + 32 + 124 + 32 + 32 + 1 + 1 + 1 + 8 = 511b ;; refs = 0
+            .store_ref(                                     ;; 267 + 124 + 124 + 32 + 124 + 32 + 32 + 1 + 1 + 1 + 8 = 778b ;; refs = 0
                 begin_cell()
+                    .store_slice(storage::factory_address)
                     .store_coins(storage::cost)
                     .store_coins(storage::arbitrator_fee_percent)
                     .store_uint(storage::rent_time, 32)
@@ -115,8 +120,8 @@ global int pause_attempts;                              ;; number of committed a
                     .store_uint(pause_attempts, 8)
                 .end_cell()
             )
-        .end_cell()                                         ;; total bits 925b + ^511b = 1436b ;; total refs = 2
-    );                                                      ;; total global variables = 17
+        .end_cell()                                         ;; total bits 989b + ^778b = 1767b ;; total refs = 2
+    );                                                      ;; total global variables = 19
 }
 
 () recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
@@ -428,9 +433,9 @@ global int pause_attempts;                              ;; number of committed a
         loaded_dict~udict_set(256, "name"H, begin_cell().store_ref(sbt_name.end_cell()).end_cell().begin_parse());
         loaded_dict~udict_set(256, "description"H, begin_cell().store_ref(sbt_description.end_cell()).end_cell().begin_parse());
         
-        return (init?, 0, null_addr(), storage::lessor_address, begin_cell().store_uint(0, 8).store_dict(loaded_dict).end_cell());
+        return (init?, storage::index, storage::factory_address, storage::arbitrator_address, begin_cell().store_uint(0, 8).store_dict(loaded_dict).end_cell());
     }
-    return (init?, 0, null_addr(), storage::lessor_address, storage::content);
+    return (init?, storage::index, storage::factory_address, storage::arbitrator_address, storage::content);
 }
 
 slice get_editor() method_id {

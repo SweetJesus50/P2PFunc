@@ -1,5 +1,5 @@
 import { Address, toNano } from '@ton/core';
-import { P2p } from '../wrappers/P2p';
+import { P2p } from '../wrappers/P2pSingle';
 import { compile, NetworkProvider } from '@ton/blueprint';
 import { buildOnchainMetadata } from '../wrappers/onChain';
 

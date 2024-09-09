@@ -3,33 +3,42 @@
 #include "imports/op-codes.fc";
 #include "imports/utils.fc";
 
-global slice storage::owner;
-;; global cell storage::content;
-;; global cell storage::p2p_code;
+global slice storage::owner_address;
+global int storage::p2p_next_id;
+global cell storage::content;
+global cell storage::p2p_code;
+global cell storage::p2p_jetton_code;
 global cell storage::moderators;
-
-;; global int storage::p2p_next_id;
 
 () load_data() impure inline {
     slice ds = get_data().begin_parse();
 
-    storage::owner = ds~load_msg_addr();
-    ;; storage::p2p_next_id = ds~load_uint(64);
+    storage::owner_address = ds~load_msg_addr();
+    storage::p2p_next_id = ds~load_uint(64);
+    storage::content = ds~load_ref();
+    storage::p2p_code = ds~load_ref();
+    storage::p2p_jetton_code = ds~load_ref();
     storage::moderators = ds~load_dict();
-    ;; storage::content = ds~load_ref();
-    ;; storage::p2p_code = ds~load_ref();
 }
 
 () save_data() impure inline {
     set_data(
         begin_cell()
-            .store_slice(storage::owner)
-            ;; .store_uint(storage::p2p_next_id, 64)
-            .store_dict(storage::moderators)
-            ;; .store_ref(storage::content)
-            ;; .store_ref(storage::p2p_code)   
+            .store_slice(storage::owner_address)
+            .store_uint(storage::p2p_next_id, 64)
+            .store_ref(storage::content)
+            .store_ref(storage::p2p_code)
+            .store_ref(storage::p2p_jetton_code)
+            .store_dict(storage::moderators)   
         .end_cell()
     );
+}
+
+int check_deploy_access(slice check_address, cell moderators) impure inline {
+    (_, int success) = moderators.dict_get?(267, check_address);
+    if(success) {
+        return true;
+    } else { return false; }
 }
 
 () recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
@@ -52,26 +61,82 @@ global cell storage::moderators;
     int op = in_msg_body~load_uint(32);
     int query_id = in_msg_body~load_uint(64);
 
-    ;; if(op == op::deploy_p2p) {
-    ;;     throw_unless(err::wrong_address, equal_slice_bits(sender_address, storage::owner));
-    ;;     throw_unless(err::out_of_gas, msg_value >= gas::transaction + gas::deploy_value);
-
-    ;;     return();
-    ;; }
-
     if(op == op::comment_message) {
-        int comment = string_hash(in_msg_body);
-        if(comment == "Destroy"H) { ;; ???
-            throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::owner));
-            send_cell_message(storage::owner, 0, null(), mode::carry_remaining_balance + mode::selfdestruct_on_empty);
-            return();
-        }
+        return();
+    }
+
+    if(op == op::deploy_p2p) {
+        throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::owner_address) | 
+                                               check_deploy_access(sender_address, storage::moderators));
+        throw_unless(err::out_of_gas, msg_value >= gas::transaction + gas::deploy_value);
+
+        int item_index = in_msg_body~load_uint(64);
+        throw_unless(err::wrong_index, item_index <= storage::p2p_next_id);
+
+        int forward_ton_amount = in_msg_body~load_coins();
+        throw_unless(err::out_of_gas, forward_ton_amount >= gas::min_for_storage);
+
+        cell p2p_content = in_msg_body~load_ref();
+        slice p2p_inner_cell_slice = in_msg_body~load_ref().begin_parse();
+
+        deploy_p2p(
+            forward_ton_amount, 
+            item_index, 
+            in_msg_body~load_msg_addr(), 
+            in_msg_body~load_msg_addr(),
+            in_msg_body~load_msg_addr(),
+            p2p_content,
+            in_msg_body~load_coins(),
+            p2p_inner_cell_slice~load_coins(),
+            p2p_inner_cell_slice~load_coins(),
+            p2p_inner_cell_slice~load_uint(32),
+            storage::p2p_code);
+
+        storage::p2p_next_id += 1;
+
+        save_data();
+
+        return();
+    }
+
+    if(op == op::deploy_p2p_jetton) {
+        throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::owner_address) | 
+                                               check_deploy_access(sender_address, storage::moderators));
+        throw_unless(err::out_of_gas, msg_value >= gas::transaction + gas::deploy_value);
+
+        int item_index = in_msg_body~load_uint(64);
+        throw_unless(err::wrong_index, item_index <= storage::p2p_next_id);
+
+        int forward_ton_amount = in_msg_body~load_coins();
+        throw_unless(err::out_of_gas, forward_ton_amount >= gas::min_for_storage);
+
+        cell p2p_content = in_msg_body~load_ref();
+        slice p2p_inner_cell_slice = in_msg_body~load_ref().begin_parse();
+
+        deploy_p2p_jetton(
+            forward_ton_amount, 
+            item_index,
+            p2p_inner_cell_slice~load_msg_addr(),       ;; jetton_master address 
+            in_msg_body~load_msg_addr(), 
+            in_msg_body~load_msg_addr(),
+            in_msg_body~load_msg_addr(),
+            p2p_content,
+            p2p_inner_cell_slice~load_coins(),
+            p2p_inner_cell_slice~load_coins(),
+            p2p_inner_cell_slice~load_coins(),
+            p2p_inner_cell_slice~load_uint(32),
+            storage::p2p_jetton_code);
+
+        storage::p2p_next_id += 1;
+
+        save_data();
+
         return();
     }
 
     ;; Owner methods
 
-    throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::owner));
+    throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::owner_address));
     
     if(op == 1) { ;; add moderator
         slice new_moderator = in_msg_body~load_msg_addr();
@@ -142,7 +207,7 @@ global cell storage::moderators;
 
         var msg = begin_cell()
                     .store_uint(flags::unbounceable, 6)
-                    .store_slice(storage::owner)
+                    .store_slice(storage::owner_address)
                     .store_coins(0)
                     .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 32)
                     .store_slice("Tons successfully withdrawn!");
@@ -155,21 +220,14 @@ global cell storage::moderators;
     throw(op::unknown);
 }
 
-;; (int, cell, slice) get_collection_data() method_id {
-;;   load_data();
-;;   slice cs = content.begin_parse();
-;;   return (storage::p2p_next_id, cs~load_ref(), storage::owner);
-;; }
-
-;; slice get_p2p_address_by_index(int index) method_id {
-;;     load_data();
-;;     cell state_init = calculate_p2p_item_state_init(index, storage::p2p_code);
-;;     return calculate_p2p_item_address(workchain(), state_init);
-;; }
+(int, cell, slice) get_collection_data() method_id {
+  load_data();
+  return (storage::p2p_next_id, storage::content, storage::owner_address);
+}
 
 (slice) get_owner_address() method_id {
     load_data();
-    return storage::owner;
+    return storage::owner_address;
 }
 
 (cell) get_list() method_id {
@@ -185,37 +243,3 @@ global cell storage::moderators;
     } else { return false; }
 }
 
-    {- TRASH -}
-
-    ;; (slice) retrieve_moderator(slice sender) impure inline {
-    ;;     (slice moderator, int success) = storage::moderators.dict_get?(267, sender);
-    ;;     if(success) {
-    ;;         return moderator;
-    ;;     } else {
-    ;;         return null_addr();
-    ;;     }   
-    ;; }
-
-    ;;  if(op == op::fulfill_message) {
-    ;;     throw_unless(err::out_of_gas, msg_value >= gas::transaction + fwd_fee);
-    ;;     throw_unless(err::unauthorized_access, equal_slices(sender_address, retrieve_moderator(sender_address)));
-    ;;     send_message_with_comment(flags::bounceable, in_msg_body~load_msg_addr(), gas::transaction, "Fullfilled", mode::pay_fees_separately);
-    ;;     send_cell_message(sender_address, msg_value + fwd_fee, null(), mode::pay_fees_separately);
-    ;;     return();
-    ;; }
-
-    ;; if(op == op::abort_message) {
-    ;;     throw_unless(err::out_of_gas, msg_value >= gas::transaction + fwd_fee);
-    ;;     throw_unless(err::unauthorized_access, equal_slices(sender_address, retrieve_moderator(sender_address)));
-    ;;     send_message_with_comment(flags::bounceable, in_msg_body~load_msg_addr(), gas::transaction, "Abort", mode::pay_fees_separately);
-    ;;     send_cell_message(sender_address, msg_value + fwd_fee, null(), mode::pay_fees_separately);
-    ;;     return();
-    ;; }
-
-    ;; if(op == op::fill_message) {
-    ;;     throw_unless(err::out_of_gas, msg_value >= gas::transaction + fwd_fee);
-    ;;     throw_unless(err::unauthorized_access, equal_slices(sender_address, retrieve_moderator(sender_address)));
-    ;;     send_cell_message(in_msg_body~load_msg_addr(), gas::transaction, begin_cell().store_uint(in_msg_body~load_uint(256), 256).end_cell(), mode::pay_fees_separately);
-    ;;     send_cell_message(sender_address, msg_value + fwd_fee, null(), mode::pay_fees_separately);
-    ;;     return();
-    ;; }

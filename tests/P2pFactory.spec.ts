@@ -1,6 +1,6 @@
 import { Blockchain, printTransactionFees, SandboxContract, TreasuryContract } from '@ton/sandbox';
 import { Address, beginCell, Cell, Dictionary, DictionaryKey, toNano } from '@ton/core';
-import { Arbitrator } from '../wrappers/Arbitrator';
+import { Arbitrator } from '../wrappers/P2pFactory';
 import '@ton/test-utils';
 import { compile } from '@ton/blueprint';
 
@@ -8,7 +8,7 @@ describe('Arbitrator', () => {
     let code: Cell;
 
     beforeAll(async () => {
-        code = await compile('Arbitrator');
+        code = await compile('P2pFactory');
     });
 
     let blockchain: Blockchain;
@@ -32,6 +32,9 @@ describe('Arbitrator', () => {
 
         arbitrator = blockchain.openContract(Arbitrator.createFromConfig({
             ownerAddress: owner.address,
+            content: Cell.EMPTY,
+            p2pCode: await compile('P2p'),
+            p2pJettonCode: await compile('P2pJetton'),
             moderators: moderatorlist
         }, code));
 
