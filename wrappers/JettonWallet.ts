@@ -48,7 +48,7 @@ export class JettonWallet implements Contract {
             value: value + opts.forwardTonAmount,
             sendMode: SendMode.PAY_GAS_SEPARATELY,
             body: beginCell()
-                    .storeUint(0xf8a7ea5, 32)
+                    .storeUint(0x0f8a7ea5, 32)
                     .storeUint(opts.queryId, 64)
                     .storeCoins(opts.jettonAmount)
                     .storeAddress(opts.toAddress)

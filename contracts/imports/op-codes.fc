@@ -1,4 +1,4 @@
-const int op::transfer = 0xf8a7ea5;
+const int op::transfer = 0x0f8a7ea5;
 const int op::transfer_notification = 0x7362d09c;
 const int op::internal_transfer = 0x178d4519;
 const int op::excesses = 0xd53276db;
@@ -16,20 +16,12 @@ const int op::change_admin = 0x4840664f;
 const int op::change_content = 0x5773d1f5;
 
 
-;; const int op::sync_balance = 0x39a83d87;
-;; const int op::arbitrator_message = 0x44e6fb34;
-;; const int op::external_message = 0xcd9a4d97;
-
 const int op::comment_message = 0;
 
 const int op::unknown = 0xffff;
 const int op::unknown_comment_action = 0xeeee;
 
 ;; Arbitrator Messages
-
-;; const int op::fulfill_message = 0xaf8b4394;
-;; const int op::abort_message = 0xda191993;
-;; const int op::fill_message = 0x045bc85a;
 
 const int op::cancel_rent = 0x34bae2ab;
 const int op::pause_rent = 0x92720da6;

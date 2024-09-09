@@ -63,7 +63,7 @@ describe('P2PJetton', () => {
             renterAddress: renter.address,
             content: buildOnchainMetadata({item_name: "Snowboard", image: "image_link"}),
             depositSize: 50n,
-            cost: toNano(1),                      // 1 TON
+            cost: 50n,                            // Jettons
             arbitratorFeePercent: toNano("0.03"), // 3%
             rentTime: 3600                        // 1 hour
         }, code));
@@ -107,4 +107,52 @@ describe('P2PJetton', () => {
         // the check is done inside beforeEach
         // blockchain and p2PJetton are ready to use
     });
+    it('should receive payment from renter & end rent (no delay)', async () => {
+        blockchain.now!! += 3600
+        let transactionRes = await p2p.sendFinish(lessor.getSender(), toNano("0.05"))
+        
+        expect((await p2p.getStorage()).request).toBeTruthy()
+
+        const cost = (await p2p.getStorage()).cost
+
+        transactionRes = await renterJettonWallet.sendTransfer(renter.getSender(), toNano("0.05"), { // sending payment
+            queryId: 123,
+            jettonAmount: cost,
+            toAddress: p2p.address,
+            forwardTonAmount: toNano("0.055") * 3n,
+            forwardPayload: beginCell().storeUint(0, 32).storeStringTail("Payment").endCell()
+        })
+
+        expect((await p2p.getStorage()).ended).toBeTruthy()
+    })
+    it('should receive payment from renter & end rent (with delay)', async () => {
+        blockchain.now!! += 3600
+        let transactionRes = await p2p.sendFinish(lessor.getSender(), toNano("0.05"))
+        
+        expect((await p2p.getStorage()).delayTime).toEqual(blockchain.now!! + 5400) // `delayTime` = `rentTime` + 5400 (1 hour 30 minutes)
+        expect((await p2p.getStorage()).request).toBeTruthy()
+
+        blockchain.now!! += 5401 // 1 hour since rentTime passed -> payment delayed -> take deposit from renter and send it to lessor
+
+        const cost = (await p2p.getStorage()).cost
+
+        transactionRes = await renterJettonWallet.sendTransfer(renter.getSender(), toNano("0.05"), { // sending payment
+            queryId: 123,
+            jettonAmount: cost,
+            toAddress: p2p.address,
+            forwardTonAmount: toNano("0.055") * 3n,
+            forwardPayload: beginCell().storeUint(0, 32).storeStringTail("Payment").endCell()
+        })
+
+        expect(transactionRes.transactions).toHaveTransaction({
+            from: p2p.address,
+            to: renter.address,
+            success: true,
+            body: beginCell().storeUint(0, 32).storeStringTail("Payment was delayed. You are fined.").endCell()
+        })
+
+        expect((await p2p.getStorage()).ended).toBeTruthy()
+    })
+    
+    // OTHER TESTS ARE DONE IN P2P.FC BC THEY HAVE THE SAME LOGIC AS IN BASIC P2P (NO JETTON)
 });

@@ -62,6 +62,14 @@ export class P2PJetton implements Contract {
         })
     }
 
+    async sendFinish(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().storeUint(0, 32).storeStringTail("Finish").endCell()
+        })
+    }
+
     async getStorage(provider: ContractProvider) {
         let { stack } = await provider.get('get_storage', [])
 

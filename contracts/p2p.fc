@@ -38,7 +38,7 @@ global slice storage::lessor_address;                   ;; MsgAddressInt - Lesso
 global slice storage::renter_address;                   ;; MsgAddressInt - Renter wallet address
 
 global cell storage::content;                           ;; Cell - SBT metadata (`item_name` + `image_link`)
-global int storage::deposit_size;
+global int storage::deposit_size;                       ;; Coins - Deposit size
 
 global int storage::cost;                               ;; Coins - Cost of the Rent
 global int storage::arbitrator_fee_percent;             ;; Coins - Arbitrator fee percent (0.1 = 10% | 1 = 100%)
@@ -94,7 +94,7 @@ global int pause_attempts;                              ;; number of committed a
 
 () save_data() impure inline {
     set_data(
-        begin_cell()                                        ;; 267 + 267 + 267 = 801b ;; refs = 2
+        begin_cell()                                        ;; 267 + 267 + 267 + 124 = 925b ;; refs = 2
             .store_slice(storage::arbitrator_address)
             .store_slice(storage::lessor_address)
             .store_slice(storage::renter_address)
@@ -115,8 +115,8 @@ global int pause_attempts;                              ;; number of committed a
                     .store_uint(pause_attempts, 8)
                 .end_cell()
             )
-        .end_cell()                                         ;; total bits 801b + ^511b = 1312b ;; total refs = 2
-    );                                                      ;; total global variables = 16
+        .end_cell()                                         ;; total bits 925b + ^511b = 1436b ;; total refs = 2
+    );                                                      ;; total global variables = 17
 }
 
 () recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
@@ -139,7 +139,7 @@ global int pause_attempts;                              ;; number of committed a
     int op = in_msg_body~load_uint(32);
     int query_id = slice_bits(in_msg_body) >= 64 ? in_msg_body~load_uint(64) : 0;
 
-    ;; try {
+    try {
 
         if(op == op::comment_message) {
             throw_if(err::finished, is_ended?);
@@ -262,7 +262,7 @@ global int pause_attempts;                              ;; number of committed a
                     is_ended? = true;
 
                     save_data();
-
+                    
                     return();
                 }
                 if(query_id == 2) { ;; the dispute was resolved in favor of the renter
@@ -359,10 +359,10 @@ global int pause_attempts;                              ;; number of committed a
 
         throw(op::unknown);
 
-    ;; } catch (_, n) {
-    ;;     send_cell_message(sender_address, 0, begin_cell().store_uint(0, 32).store_slice("Error. Code ").store_number10(n).end_cell(), mode::carry_remaining_gas);
-    ;;     return();
-    ;; }
+    } catch (_, n) {
+        send_cell_message(sender_address, 0, begin_cell().store_uint(0, 32).store_slice("Error. Code ").store_number10(n).end_cell(), mode::carry_remaining_gas);
+        return();
+    }
 
 }
 

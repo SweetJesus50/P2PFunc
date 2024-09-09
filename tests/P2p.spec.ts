@@ -77,17 +77,13 @@ describe('P2p', () => {
 
     it('should finish rent & send request to renter', async () => {
         let transactionRes = await p2p.sendFinish(lessor.getSender(), toNano("0.05"))
-        expect(transactionRes.transactions).toHaveTransaction({
-            from: lessor.address,
-            to: p2p.address,
-            success: false,
-            exitCode: 54 // err::not_finished
-        })
+    
         expect((await p2p.getStorage()).request).toBeFalsy()
 
         blockchain.now!! += 3600
 
         transactionRes = await p2p.sendFinish(lessor.getSender(), toNano("0.05"))
+        
         expect(transactionRes.transactions).toHaveTransaction({
             from: lessor.address,
             to: p2p.address,

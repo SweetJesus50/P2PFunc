@@ -62,6 +62,9 @@ const int err::max_attempts_reached = 69;
 const int err::invalid_query_id = 70;
 const int err::wrong_jetton = 71;
 const int err::already_deployed = 72;
+
+const int err::wrong_jetton_wallet_address = 888;
+
 const int err::not_deployed = 777;
 const int err::out_of_gas = 13;
 
