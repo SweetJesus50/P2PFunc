@@ -29,7 +29,7 @@
 #include "imports/utils.fc";
 
 global int init?;                                       ;; bool - == `true` when renter sent deposit else == `false`
-global int storage::index;
+global int storage::index;                              ;; Uint64 - index (to match TEP-62)
 global int request?;                                    ;; bool - request for payment sent by lessor to renter
 
 global slice storage::arbitrator_address;               ;; MsgAddressInt - Arbitrator wallet address
@@ -41,7 +41,7 @@ global slice storage::factory_address;
 global slice storage::jetton_wallet_address;            ;; MsgAddressInt - Contract's jetton wallet address
 global int storage::deposit_size;
 
-global cell storage::content;                           ;; Cell - SBT metadata (`item_name` + `image_link`)
+global cell storage::content;                           ;; Cell - contract's metadata (`item_name` + `image_link`)
 
 global int storage::cost;                               ;; Coins - Cost of the Rent
 global int storage::arbitrator_fee_percent;             ;; Coins - Arbitrator fee percent (0.1 = 10% | 1 = 100%)
@@ -110,7 +110,7 @@ global int pause_attempts;                              ;; number of committed a
             .store_slice(storage::lessor_address)
             .store_slice(storage::renter_address)
             .store_ref(storage::content)
-            .store_ref(                                     ;; 267 + 124 = 391  ;; refs = 0
+            .store_ref(                                     ;; 267 + 267 + 124 = 658b  ;; refs = 0
                 begin_cell()
                     .store_slice(storage::factory_address)
                     .store_slice(storage::jetton_wallet_address)
@@ -132,8 +132,8 @@ global int pause_attempts;                              ;; number of committed a
                     .store_uint(pause_attempts, 8)
                 .end_cell()
             )
-        .end_cell()                                         ;; total bits 865b + ^391b + ^511b = 1768b ;; total refs = 3
-    );                                                      ;; total global variables = 19
+        .end_cell()                                         ;; total bits 865b + ^658b + ^511b = 2034b ;; total refs = 3
+    );                                                      ;; total global variables = 20
 }
 
 () recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
@@ -204,7 +204,7 @@ global int pause_attempts;                              ;; number of committed a
 
             return();
         } 
-        else { throw(err::wrong_jetton_wallet_address); }
+        else { throw(err::wrong_jetton_wallet_addr); }
     }
 
     throw_if(err::not_deployed, equal_slices(storage::jetton_wallet_address, null_addr()));
@@ -491,11 +491,11 @@ global int pause_attempts;                              ;; number of committed a
         var (_, r) = divmod(storage::rent_time, one_day);
         int rent_time_hours = r / one_hour;
 
-        ;; (slice uri, int success) = loaded_dict.udict_get?(256, "uri"H); ;; no need now
-        ;; if (success) {
-        ;;     uri = uri~load_ref().begin_parse();
-        ;;     loaded_dict~udict_set(256, "uri"H, begin_cell().store_ref(begin_cell().store_slice(uri).store_number10(storage::index).end_cell()).end_cell().begin_parse());
-        ;; }
+        (slice uri, int success) = loaded_dict.udict_get?(256, "uri"H);
+        if (success) {
+            uri = uri~load_ref().begin_parse();
+            loaded_dict~udict_set(256, "uri"H, begin_cell().store_ref(begin_cell().store_slice(uri).store_number10(storage::index).end_cell()).end_cell().begin_parse());
+        }
 
         (slice item_name_slice, int success) = loaded_dict~udict_delete_get?(256, "item_name"H);
         builder sbt_name = begin_cell();

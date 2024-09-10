@@ -1,10 +1,12 @@
 import { Blockchain, printTransactionFees, SandboxContract, TreasuryContract } from '@ton/sandbox';
 import { Address, beginCell, Cell, Dictionary, DictionaryKey, toNano } from '@ton/core';
-import { Arbitrator } from '../wrappers/P2pFactory';
+import { P2PFactory } from '../wrappers/P2pFactory';
 import '@ton/test-utils';
 import { compile } from '@ton/blueprint';
+import { randomAddress } from '@ton/test-utils';
+import { randomBytes } from 'crypto';
 
-describe('Arbitrator', () => {
+describe('p2pFactory', () => {
     let code: Cell;
 
     beforeAll(async () => {
@@ -16,7 +18,7 @@ describe('Arbitrator', () => {
     let moderator1: SandboxContract<TreasuryContract>;
     let moderator2: SandboxContract<TreasuryContract>;
     let moderator3: SandboxContract<TreasuryContract>;
-    let arbitrator: SandboxContract<Arbitrator>;
+    let p2pFactory: SandboxContract<P2PFactory>;
 
     beforeEach(async () => {
         blockchain = await Blockchain.create();
@@ -30,7 +32,7 @@ describe('Arbitrator', () => {
         let moderatorlist: Dictionary<Address, boolean> = Dictionary.empty();
         moderatorlist.set(moderator1.address, false);
 
-        arbitrator = blockchain.openContract(Arbitrator.createFromConfig({
+        p2pFactory = blockchain.openContract(P2PFactory.createFromConfig({
             ownerAddress: owner.address,
             content: Cell.EMPTY,
             p2pCode: await compile('P2p'),
@@ -38,60 +40,60 @@ describe('Arbitrator', () => {
             moderators: moderatorlist
         }, code));
 
-        const deployResult = await arbitrator.sendDeploy(owner.getSender(), toNano('0.05'));
+        const deployResult = await p2pFactory.sendDeploy(owner.getSender(), toNano('0.05'));
 
         expect(deployResult.transactions).toHaveTransaction({
             from: owner.address,
-            to: arbitrator.address,
+            to: p2pFactory.address,
             deploy: true,
             success: true,
         });
 
-        expect(await arbitrator.getOwnerAddress()).toEqualAddress(owner.address);
-        expect(await arbitrator.getIsModerator(moderator1.address)).toBeTruthy();
+        expect(await p2pFactory.getOwnerAddress()).toEqualAddress(owner.address);
+        expect(await p2pFactory.getIsModerator(moderator1.address)).toBeTruthy();
     });
 
     it('should deploy & check storage', async () => {
         // the check is done inside beforeEach
-        // blockchain and arbitrator are ready to use
+        // blockchain and p2pFactory are ready to use
     });
 
     it('should add moderator', async() => {
-        expect(await arbitrator.getIsModerator(moderator2.address)).toBeFalsy()
-        let transactionRes = await arbitrator.sendAddModerator(owner.getSender(), moderator2.address);
+        expect(await p2pFactory.getIsModerator(moderator2.address)).toBeFalsy()
+        let transactionRes = await p2pFactory.sendAddModerator(owner.getSender(), moderator2.address, 123);
         expect(transactionRes.transactions).toHaveTransaction({
             from: owner.address,
-            to: arbitrator.address,
+            to: p2pFactory.address,
             op: 1,
             success: true
         })
         expect(transactionRes.transactions).toHaveTransaction({
-            from: arbitrator.address,
+            from: p2pFactory.address,
             to: owner.address,
             success: true,
             op: 0,
             body: beginCell().storeUint(0, 32).storeStringTail("Moderator added successfully").endCell()
         })
-        expect(await arbitrator.getIsModerator(moderator2.address)).toBeTruthy()
+        expect(await p2pFactory.getIsModerator(moderator2.address)).toBeTruthy()
     });
 
     it('should remove moderator', async() => {
-        expect(await arbitrator.getIsModerator(moderator1.address)).toBeTruthy()
-        let transactionRes = await arbitrator.sendRemoveModerator(owner.getSender(), moderator1.address);
+        expect(await p2pFactory.getIsModerator(moderator1.address)).toBeTruthy()
+        let transactionRes = await p2pFactory.sendRemoveModerator(owner.getSender(), moderator1.address, 123);
         expect(transactionRes.transactions).toHaveTransaction({
             from: owner.address,
-            to: arbitrator.address,
+            to: p2pFactory.address,
             op: 2,
             success: true
         })
         expect(transactionRes.transactions).toHaveTransaction({
-            from: arbitrator.address,
+            from: p2pFactory.address,
             to: owner.address,
             success: true,
             op: 0,
             body: beginCell().storeUint(0, 32).storeStringTail("Moderator removed successfully").endCell()
         })
-        expect(await arbitrator.getIsModerator(moderator1.address)).toBeFalsy()
+        expect(await p2pFactory.getIsModerator(moderator1.address)).toBeFalsy()
     });
     
     it('should change moderators list', async() => {
@@ -117,19 +119,19 @@ describe('Arbitrator', () => {
         
         expect(newModeratorsList.size).toEqual(moderators_arr.length)
 
-        let transactionRes = await arbitrator.sendChangeModeratorList(owner.getSender(), newModeratorsList)
+        let transactionRes = await p2pFactory.sendChangeModeratorList(owner.getSender(), 123, newModeratorsList)
 
         expect(transactionRes.transactions).toHaveTransaction({
             from: owner.address,
-            to: arbitrator.address,
+            to: p2pFactory.address,
             op: 3,
             success: true
         })
 
         for(let newmoders of newModeratorsList) {
-            expect(await arbitrator.getIsModerator(newmoders[0])).toBeTruthy()
+            expect(await p2pFactory.getIsModerator(newmoders[0])).toBeTruthy()
         }
 
-        expect(await arbitrator.getIsModerator(moderator1.address)).toBeFalsy()
+        expect(await p2pFactory.getIsModerator(moderator1.address)).toBeFalsy()
     });
 });

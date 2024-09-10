@@ -1,42 +1,43 @@
-const int op::transfer = 0x0f8a7ea5;
-const int op::transfer_notification = 0x7362d09c;
-const int op::internal_transfer = 0x178d4519;
-const int op::excesses = 0xd53276db;
-const int op::burn = 0x595f07bc;
-const int op::burn_notification = 0x7bdd97de;
-const int op::mint = 21;
+{- P2P Factory -}
+const int op::deploy_p2p                = 0xbabed24e;
+const int op::deploy_p2p_jetton         = 0xd97cf5da;
+const int op::set_jetton_wallet         = 0x2bee0192;
+const int op::add_moderator             = 1;
+const int op::remove_moderator          = 2;
+const int op::change_moderators         = 3;
+
+{- P2P & P2P Jetton -}
+const int op::cancel_rent               = 0x34bae2ab;
+const int op::pause_rent                = 0x92720da6;
+const int op::unpause_rent              = 0xe30a304d;
+
+{- P2P Jetton -}
+const int op::deploy                    = 0x95973dcc;
+const int op::change_jetton_wallet      = 0x70eecd6f;
+
+{- Jetton Master Discoverable -}
+const int op::mint                      = 21;
+const int op::provide_wallet_address    = 0x2c76b973;
+const int op::take_wallet_address       = 0xd1735400;
+const int op::burn_notification         = 0x7bdd97de;
+const int op::change_admin              = 3;
+const int op::change_content            = 4;
+
+{- Jetton Wallet -}
+const int op::transfer                  = 0x0f8a7ea5;
+const int op::transfer_notification     = 0x7362d09c;
+const int op::internal_transfer         = 0x178d4519;
+const int op::excesses                  = 0xd53276db;
+const int op::burn                      = 0x595f07bc;
+
+{- OTHER -}
+const int op::comment_message           = 0;
+const int op::unknown                   = 0xffff;
+const int op::unknown_comment_action    = 0xeeee;
+const int op::withdraw_ton              = 0x6d8e5e3c;
+const int op::withdraw_jetton           = 0x768a50b2;
 
 
-const int op::provide_wallet_address = 0x2c76b973;
-const int op::take_wallet_address = 0xd1735400;
-
-;; Minter
-;; const int op::mint = 0x1674b0a0;
-const int op::change_admin = 0x4840664f;
-const int op::change_content = 0x5773d1f5;
-
-
-const int op::comment_message = 0;
-
-const int op::unknown = 0xffff;
-const int op::unknown_comment_action = 0xeeee;
-
-;; Arbitrator Messages
-
-const int op::cancel_rent = 0x34bae2ab;
-const int op::pause_rent = 0x92720da6;
-const int op::unpause_rent = 0xe30a304d;
-
-const int op::withdraw_ton = 0x6d8e5e3c;
-const int op::withdraw_jetton = 0x768a50b2;
-const int op::change_jetton_wallet = 0x70eecd6f;
-
-const int op::deploy = 0x95973dcc;
-const int op::deploy_p2p = 0xbabed24e;
-const int op::deploy_p2p_jetton = 0xd97cf5da;
-const int op::set_jetton_wallet = 0x2bee0192;
-
-const int op::declined = 0x6c9d91d2;
 
 
 

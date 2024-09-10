@@ -4,7 +4,7 @@ import { P2p } from '../wrappers/P2pSingle';
 import '@ton/test-utils';
 import { compile } from '@ton/blueprint';
 import { buildOnchainMetadata } from '../wrappers/onChain';
-import { Arbitrator } from '../wrappers/P2pFactory';
+import { P2PFactory } from '../wrappers/P2pFactory';
 
 describe('P2p', () => {
     let code: Cell;

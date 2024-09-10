@@ -3,12 +3,12 @@
 #include "imports/op-codes.fc";
 #include "imports/utils.fc";
 
-global slice storage::owner_address;
-global int storage::p2p_next_id;
-global cell storage::content;
-global cell storage::p2p_code;
-global cell storage::p2p_jetton_code;
-global cell storage::moderators;
+global slice storage::owner_address;     ;; MsgAddressInt - Factory owner internal address
+global int storage::p2p_next_id;         ;; Uint64 - next_item_index (to match TEP-62)
+global cell storage::content;            ;; Cell - contract's metadata
+global cell storage::p2p_code;           ;; Cell - P2P Contract BOC
+global cell storage::p2p_jetton_code;    ;; Cell - P2P Jetton Contract BOC
+global cell storage::moderators;         ;; Cell (HashmapE <Address, bool>) - Moderators
 
 () load_data() impure inline {
     slice ds = get_data().begin_parse();
@@ -22,7 +22,7 @@ global cell storage::moderators;
 }
 
 () save_data() impure inline {
-    set_data(
+    set_data(                                       ;; 267 + 64 = 331b ;; refs = 4
         begin_cell()
             .store_slice(storage::owner_address)
             .store_uint(storage::p2p_next_id, 64)
@@ -30,8 +30,8 @@ global cell storage::moderators;
             .store_ref(storage::p2p_code)
             .store_ref(storage::p2p_jetton_code)
             .store_dict(storage::moderators)   
-        .end_cell()
-    );
+        .end_cell()                                 
+    );                                              ;; total global variables = 6
 }
 
 int check_deploy_access(slice check_address, cell moderators) impure inline {
@@ -82,14 +82,14 @@ int check_deploy_access(slice check_address, cell moderators) impure inline {
         deploy_p2p(
             forward_ton_amount, 
             item_index, 
-            in_msg_body~load_msg_addr(), 
-            in_msg_body~load_msg_addr(),
-            in_msg_body~load_msg_addr(),
+            p2p_inner_cell_slice~load_msg_addr(), 
+            p2p_inner_cell_slice~load_msg_addr(),
+            p2p_inner_cell_slice~load_msg_addr(),
             p2p_content,
             in_msg_body~load_coins(),
-            p2p_inner_cell_slice~load_coins(),
-            p2p_inner_cell_slice~load_coins(),
-            p2p_inner_cell_slice~load_uint(32),
+            in_msg_body~load_coins(),
+            in_msg_body~load_coins(),
+            in_msg_body~load_uint(32),
             storage::p2p_code);
 
         storage::p2p_next_id += 1;
@@ -116,15 +116,15 @@ int check_deploy_access(slice check_address, cell moderators) impure inline {
         deploy_p2p_jetton(
             forward_ton_amount, 
             item_index,
-            p2p_inner_cell_slice~load_msg_addr(),       ;; jetton_master address 
-            in_msg_body~load_msg_addr(), 
-            in_msg_body~load_msg_addr(),
-            in_msg_body~load_msg_addr(),
+            in_msg_body~load_msg_addr(),       ;; jetton_master address 
+            p2p_inner_cell_slice~load_msg_addr(), 
+            p2p_inner_cell_slice~load_msg_addr(),
+            p2p_inner_cell_slice~load_msg_addr(),
             p2p_content,
-            p2p_inner_cell_slice~load_coins(),
-            p2p_inner_cell_slice~load_coins(),
-            p2p_inner_cell_slice~load_coins(),
-            p2p_inner_cell_slice~load_uint(32),
+            in_msg_body~load_coins(),
+            in_msg_body~load_coins(),
+            in_msg_body~load_coins(),
+            in_msg_body~load_uint(32),
             storage::p2p_jetton_code);
 
         storage::p2p_next_id += 1;
@@ -138,7 +138,7 @@ int check_deploy_access(slice check_address, cell moderators) impure inline {
 
     throw_unless(err::unauthorized_access, equal_slices(sender_address, storage::owner_address));
     
-    if(op == 1) { ;; add moderator
+    if(op == op::add_moderator) {
         slice new_moderator = in_msg_body~load_msg_addr();
         (_, int success) = storage::moderators.dict_get?(267, new_moderator);
 
@@ -165,7 +165,7 @@ int check_deploy_access(slice check_address, cell moderators) impure inline {
         return();
     }
 
-    if(op == 2) { ;; remove moderator
+    if(op == op::remove_moderator) {
         slice remove_moderator = in_msg_body~load_msg_addr();
         (_, int success) = storage::moderators.dict_get?(267, remove_moderator);
       
@@ -180,7 +180,7 @@ int check_deploy_access(slice check_address, cell moderators) impure inline {
         }
     }
 
-    if(op == 3) { ;; change moderators
+    if(op == op::change_moderators) {
         cell new_moderators = in_msg_body~load_dict();
         cell tmp = new_moderators;
         int counter = 0;

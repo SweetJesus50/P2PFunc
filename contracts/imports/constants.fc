@@ -1,28 +1,23 @@
-const int percent_divisor = 1000000000; ;; 100%
-const int send_back_extra_value = 20000000;
-const int penalty_fee = 1000000;
-const int penalty_divisor = 100;
-
-const int deposit_size = 500000000; ;; 0.5 TON for example
-const int deposit_jetton_size = 100000000000; ;; 100 tokens for example
-
-const int one_hour = 60 * 60;
-const int one_and_half_hour = 60 * 60 + 30 * 60;
-const int one_day = 24 * 60 * 60;
-const int nano = 1000000000;
+{- MISC -}
+const int WORKCHAIN                     = 0;
+const int percent_divisor               = 1000000000;   ;; 100%
+const int send_back_extra_value         = 20000000;
+const int one_hour                      = 60 * 60;
+const int one_and_half_hour             = 60 * 60 + 30 * 60;
+const int one_day                       = 24 * 60 * 60;
+const int nano                          = 1000000000;
+const int const::moderators_max         = 10;
+const int const::max_attempts           = 1;
 
 {- GAS -}
-const int gas::cancellation = 50000000;
-const int gas::info_value = 1000000;
-const int gas::jetton_transfer = 55000000;
-const int gas::provide_wallet_address = 15000000;
-const int gas::transaction = 50000000;
-const int gas::deploy_value = 50000000;
-const int gas::incoming_forward = 10000000;
-
-const int gas::min_for_storage = 50000000;
-
-const int WORKCHAIN = 0;
+const int gas::info_value               = 1000000;
+const int gas::cancellation             = 50000000;
+const int gas::jetton_transfer          = 55000000;
+const int gas::provide_wallet_address   = 15000000;
+const int gas::transaction              = 50000000;
+const int gas::deploy_value             = 50000000;
+const int gas::incoming_forward         = 10000000;
+const int gas::min_for_storage          = 50000000;
 
 {- MESSAGE MODES -}
 
@@ -39,42 +34,34 @@ const int flags::bounceable             = 0x18;
 const int flags::unbounceable           = 0x10;
 
 {- Error Codes -}
-const int err::unauthorized_access = 401;
-const int err::wrong_index = 402;
+const int err::out_of_gas               = 13;
+const int err::already_started          = 50;
+const int err::already_inited           = 51;
+const int err::not_inited               = 53;
+const int err::not_finished             = 54;
+const int err::finished                 = 55;
+const int err::not_started              = 56;
+const int err::time_out                 = 57;
+const int err::addr_doesnt_match        = 58;
+const int err::moderator_exists         = 59;
+const int err::no_moderator_to_remove   = 60;
+const int err::wrong_deposit            = 61;
+const int err::not_enough_money         = 62;
+const int err::request_not_sent         = 63;
+const int err::request_sent             = 64;
+const int err::renter_has_time          = 65;
+const int err::too_much                 = 66;
+const int err::dict_empty               = 67;
+const int err::paused                   = 68;
+const int err::max_attempts_reached     = 69;
+const int err::invalid_query_id         = 70;
+const int err::wrong_jetton             = 71;
+const int err::already_deployed         = 72;
+const int err::invalid_sender           = 73;
+const int err::unauthorized_access      = 401;
+const int err::wrong_index              = 402;
+const int err::wrong_jetton_wallet_addr = 888;
+const int err::wrong_jetton_master      = 999;
+const int err::not_deployed             = 777;
+const int exc::wrong_chain              = 333;
 
-const int err::already_started = 50;
-const int err::already_inited = 51;
-const int err::not_inited = 53;
-const int err::not_finished = 54;
-const int err::finished = 55;
-const int err::not_started = 56;
-const int err::time_out = 57;
-const int err::addr_doesnt_match = 58;
-const int err::moderator_exists = 59;
-const int err::no_moderator_to_remove = 60;
-const int err::wrong_deposit = 61;
-const int err::not_enough_money = 62;
-const int err::request_not_sent = 63;
-const int err::request_sent = 64;
-const int err::renter_has_time = 65;
-const int err::too_much = 66;
-const int err::dict_empty = 67;
-const int err::paused = 68;
-const int err::max_attempts_reached = 69;
-const int err::invalid_query_id = 70;
-const int err::wrong_jetton = 71;
-const int err::already_deployed = 72;
-const int err::invalid_sender = 73;
-
-const int err::wrong_jetton_wallet_address = 888;
-const int err::wrong_jetton_master = 999;
-
-const int err::not_deployed = 777;
-const int err::out_of_gas = 13;
-
-const int exc::wrong_chain = 333;
-
-const int const::moderators_max = 10;
-const int const::max_attempts = 1;
-
-const slice zero_address = "0QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACkT"a;

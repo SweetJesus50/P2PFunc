@@ -29,7 +29,6 @@
 #include "imports/utils.fc";
 
 global int init?;                                       ;; bool - == `true` when renter sent deposit else == `false`
-;; global int storage::index; ;; if sbt not single
 global int request?;                                    ;; bool - request for payment sent by lessor to renter
 
 global slice storage::arbitrator_address;               ;; MsgAddressInt - Arbitrator wallet address
@@ -37,7 +36,7 @@ global slice storage::arbitrator_address;               ;; MsgAddressInt - Arbit
 global slice storage::lessor_address;                   ;; MsgAddressInt - Lessor wallet address
 global slice storage::renter_address;                   ;; MsgAddressInt - Renter wallet address
 
-global cell storage::content;                           ;; Cell - SBT metadata (`item_name` + `image_link`)
+global cell storage::content;                           ;; Cell - contract's metadata (`item_name` + `image_link`)
 global int storage::deposit_size;                       ;; Coins - Deposit size
 
 global int storage::cost;                               ;; Coins - Cost of the Rent
@@ -378,12 +377,6 @@ global int pause_attempts;                              ;; number of committed a
         int rent_time_days = storage::rent_time / one_day;
         var (_, r) = divmod(storage::rent_time, one_day);
         int rent_time_hours = r / one_hour;
-
-        ;; (slice uri, int success) = loaded_dict.udict_get?(256, "uri"H); ;; no need now
-        ;; if (success) {
-        ;;     uri = uri~load_ref().begin_parse();
-        ;;     loaded_dict~udict_set(256, "uri"H, begin_cell().store_ref(begin_cell().store_slice(uri).store_number10(storage::index).end_cell()).end_cell().begin_parse());
-        ;; }
 
         (slice item_name_slice, int success) = loaded_dict~udict_delete_get?(256, "item_name"H);
         builder sbt_name = begin_cell();
